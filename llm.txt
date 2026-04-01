@@ -1,0 +1,56 @@
+## Pages
+- [Show Passion](https://showtile.com.au/show-passion/)
+- [All Collections](https://showtile.com.au/collection/)
+- [Blog](https://showtile.com.au/blog/)
+- [Home](https://showtile.com.au/)
+- [Inspiration](https://showtile.com.au/inspiration/)
+
+## Posts
+- [Bathroom Tiles That Create a Spa\-Like Retreat](https://showtile.com.au/blog/renovation/bathroom-tiles-that-create-a-spa-like-retreat/)
+- [Luxury Pool Tile Designs for Stylish Outdoor Spaces](https://showtile.com.au/blog/news/luxury-pool-tile-designs-for-stylish-outdoor-spaces/)
+- [Colour Palettes \& Veining: Using Marble, Onyx \& Gold\-Veined Stones in Luxury Interiors](https://showtile.com.au/tips/colour-palettes-veining-using-marble-onyx-gold-veined-stones-in-luxury-interiors/)
+- [Luxury Living Rooms: Designer\-Approved Tile Tips to Transform Your Space](https://showtile.com.au/blog/tips/luxury-living-rooms-designer-approved-tile-tips-to-transform-your-space/)
+- [10 Subway Tile Layouts That Transform Any Space](https://showtile.com.au/subway-tile/10-subway-tile-layouts/)
+
+## Projects
+- [June Place](https://showtile.com.au/project/june-place/)
+- [Letitia Project](https://showtile.com.au/project/letitia-oatley-project/)
+- [Bexley North Project](https://showtile.com.au/project/bexley-north-project/)
+- [Forest Project](https://showtile.com.au/project/forest-project/)
+- [Twenty Eighth Avenue](https://showtile.com.au/project/twenty-eighth-avenue/)
+
+## Tiles
+- [XL Crystal Lace](https://showtile.com.au/tile/xl-crystal-lace/)
+- [XL Marmo Antico](https://showtile.com.au/tile/xl-marmo-antico/)
+- [XL Monet](https://showtile.com.au/tile/xl-monet/)
+- [XL Travertine White](https://showtile.com.au/tile/xl-travertine-white/)
+- [XL Amazzonite](https://showtile.com.au/tile/xl-amazzonite/)
+
+## Collections
+- [Noble Stone](https://showtile.com.au/product/noble-stone/)
+- [Porcelain Slab XL](https://showtile.com.au/product/luxury-porcelain-slabs-xl/)
+- [Vela Marble Subway](https://showtile.com.au/product/vela-marble-subway/)
+- [Vela Marble Mosaic](https://showtile.com.au/product/vela-marble-mosaic/)
+- [Quartz Cobble](https://showtile.com.au/product/quartz-cobble-stone/)
+
+## Categories
+- [News](https://showtile.com.au/category/news/)
+- [Tips \& Guides](https://showtile.com.au/category/tips/)
+- [Collections](https://showtile.com.au/category/blog-collections/)
+- [Cleaning \& Maintenance](https://showtile.com.au/category/cleaning-maintenance/)
+- [Tile Technology](https://showtile.com.au/category/tile-technology/)
+
+## Collection Categories
+- [Indoor Tile](https://showtile.com.au/product_category/indoor-tile/)
+- [Floor Tile](https://showtile.com.au/product_category/floor-tile/)
+- [Porcelain Tiles](https://showtile.com.au/product_category/porcelain-tiles/)
+- [Matt](https://showtile.com.au/product_category/matt-tiles/)
+- [Wall Tile](https://showtile.com.au/product_category/wall-tile/)
+
+## Project Categories
+- [residential](https://showtile.com.au/project-category/residential/)
+- [commercial](https://showtile.com.au/project-category/commercial/)
+- [feature](https://showtile.com.au/project-category/feature/)
+
+## Optional
+- [Sitemap index](https://showtile.com.au/sitemap_index.xml)

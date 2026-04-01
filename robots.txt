@@ -1,0 +1,36 @@
+# START YOAST BLOCK - Consolidated for User-agent: *
+User-agent: *
+Disallow: /wp-admin/
+Disallow: /wp-content/themes/
+Disallow: /wp-content/plugins/
+Disallow: /wp-content/uploads/wc-logs/
+Disallow: /wp-content/uploads/woocommerce_transient_files/
+Disallow: /wp-content/uploads/woocommerce_uploads/
+Disallow: /admin/
+Disallow: /internal/
+
+# Allow AJAX calls
+Allow: /wp-admin/admin-ajax.php
+# END YOAST BLOCK
+
+# Rules for AI Search and Agent Use
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: PerplexityBot
+User-agent: FirecrawlAgent
+User-agent: AndiBot
+User-agent: ExaBot
+User-agent: PhindBot
+User-agent: YouBot
+User-agent: Google-Extended
+Allow: /
+
+# Disallow AI Training Data Collection
+User-agent: GPTBot
+User-agent: CCBot
+Disallow: /
+
+# Explicitly Allow Traditional Search Indexing
+User-agent: Googlebot
+User-agent: Bingbot
+Allow: /

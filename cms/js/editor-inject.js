@@ -111,6 +111,7 @@
             return el ? el.getAttribute(attr) || '' : '';
         }
         const robots = getMetaContent('meta[name="robots"]');
+        const schemaEl = document.querySelector('script[type="application/ld+json"]');
         window.parent.postMessage({
             action: 'load_seo',
             seoData: {
@@ -124,7 +125,8 @@
                 ogImage: getMetaContent('meta[property="og:image"]'),
                 twitterCard: getMetaContent('meta[name="twitter:card"]') || 'summary_large_image',
                 twitterSite: getMetaContent('meta[name="twitter:site"]'),
-                fbPublisher: getMetaContent('meta[property="article:publisher"]')
+                fbPublisher: getMetaContent('meta[property="article:publisher"]'),
+                schemaCode: schemaEl ? schemaEl.textContent : ''
             }
         }, '*');
     }, 500); // 稍微延迟以确保页面完全解析
@@ -230,6 +232,19 @@
                 setMeta('meta[name="twitter:card"]', 'meta', 'name', 'twitter:card', sd.twitterCard);
                 setMeta('meta[name="twitter:site"]', 'meta', 'name', 'twitter:site', sd.twitterSite);
                 setMeta('meta[property="article:publisher"]', 'meta', 'property', 'article:publisher', sd.fbPublisher);
+                
+                // 回写 JSON-LD Schema
+                let schemaEl = document.querySelector('script[type="application/ld+json"]');
+                if (sd.schemaCode && sd.schemaCode.trim() !== '') {
+                    if (!schemaEl) {
+                        schemaEl = document.createElement('script');
+                        schemaEl.setAttribute('type', 'application/ld+json');
+                        document.head.appendChild(schemaEl);
+                    }
+                    schemaEl.textContent = sd.schemaCode;
+                } else if (schemaEl) {
+                    schemaEl.remove();
+                }
             }
 
             // 深度克隆整个文档 DOM，防止清理操作破坏当前用户正在编辑的界面

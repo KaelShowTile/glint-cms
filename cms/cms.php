@@ -257,8 +257,17 @@ if (isset($_GET['api'])) {
             'sitemap' => file_exists($basePath . 'Sitemap.xml') ? file_get_contents($basePath . 'Sitemap.xml') : '',
             'robots' => file_exists($basePath . 'robots.txt') ? file_get_contents($basePath . 'robots.txt') : '',
             'llm' => file_exists($basePath . 'llm.txt') ? file_get_contents($basePath . 'llm.txt') : '',
-            'htaccess' => file_exists($basePath . '.htaccess') ? file_get_contents($basePath . '.htaccess') : ''
+            'htaccess' => file_exists($basePath . '.htaccess') ? file_get_contents($basePath . '.htaccess') : '',
+            'head_scripts' => '',
+            'body_scripts' => ''
         ];
+
+        $stmt = $pdo->query("SELECT key_name, key_value FROM settings WHERE key_name IN ('global_head_scripts', 'global_body_scripts')");
+        while ($row = $stmt->fetch()) {
+            if ($row['key_name'] === 'global_head_scripts') $files['head_scripts'] = $row['key_value'];
+            if ($row['key_name'] === 'global_body_scripts') $files['body_scripts'] = $row['key_value'];
+        }
+        
         echo json_encode(['status' => 'success', 'data' => $files]);
         exit;
     }
@@ -280,7 +289,8 @@ if (isset($_GET['api'])) {
         $stmt = $pdo->query("SELECT * FROM settings");
         $settings = [];
         while ($row = $stmt->fetch()) { $settings[$row['key_name']] = $row['key_value']; }
-        echo json_encode(['status' => 'success', 'data' => $settings]);
+        // 强制将 data 转为 object, 确保即使为空也返回 {} 而不是 []
+        echo json_encode(['status' => 'success', 'data' => (object)$settings]);
         exit;
     }
 
@@ -305,16 +315,20 @@ if (isset($_GET['api'])) {
         
         if (empty($apiKey)) { echo json_encode(['status' => 'error', 'message' => '未配置 API Key']); exit; }
         
-        $prompt = "You are an expert SEO JSON-LD schema generator. Create a valid, comprehensive JSON-LD schema code for the following webpage content. Return ONLY the raw JSON object, without any markdown formatting (do not use ```json), without any HTML tags, and without any explanations.\n\nContent:\n" . $htmlText;
+        $prompt = "You are an expert SEO JSON-LD schema generator. Create a valid, comprehensive JSON-LD schema code for the following webpage content. CRITICAL INSTRUCTION: You must return ONLY the raw JSON object starting with '{' and ending with '}'. Do not include any conversational text, do not wrap it in markdown code blocks, and do not explain the code.\n\nContent:\n" . $htmlText;
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120); // 增加超时时间至 120 秒防止长文本生成断连
 
         if ($provider === 'gemini') {
             $model = $model ?: 'gemini-1.5-flash';
             $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
-            $data = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
+            $data = json_encode([
+                'contents' => [['parts' => [['text' => $prompt]]]],
+                'generationConfig' => ['maxOutputTokens' => 8192] // 增加 Gemini 最大生成长度
+            ]);
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
@@ -322,21 +336,48 @@ if (isset($_GET['api'])) {
             $url = $provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
             if ($provider === 'groq') $model = $model ?: 'mixtral-8x7b-32768';
             if ($provider === 'openai') $model = $model ?: 'gpt-3.5-turbo';
-            $data = json_encode(['model' => $model, 'messages' => [['role' => 'user', 'content' => $prompt]]]);
+            $data = json_encode([
+                'model' => $model, 
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+                'max_tokens' => 8192 // 增加 OpenAI/Groq 最大生成长度
+            ]);
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey]);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
         }
 
         $response = curl_exec($ch);
+        $curlErr = curl_error($ch);
         curl_close($ch);
+        
+        if ($response === false) {
+            echo json_encode(['status' => 'error', 'message' => '服务器网络请求失败: ' . $curlErr]);
+            exit;
+        }
+
         $resData = json_decode($response, true);
 
         $schemaStr = '';
-        if ($provider === 'gemini') $schemaStr = $resData['candidates']['content']['parts']['text'] ?? '';
-        else $schemaStr = $resData['choices']['message']['content'] ?? '';
+        if ($provider === 'gemini') {
+            $schemaStr = $resData['candidates']['content']['parts']['text'] ?? '';
+        } else {
+            $schemaStr = $resData['choices']['message']['content'] ?? '';
+        }
         
-        $schemaStr = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', trim($schemaStr));
+        // 如果由于额度不足、Key错误等原因未返回内容，抓取错误信息回传
+        if (empty($schemaStr) && isset($resData['error'])) {
+            echo json_encode(['status' => 'error', 'message' => 'API报错: ' . json_encode($resData['error'], JSON_UNESCAPED_UNICODE)]);
+            exit;
+        }
+        
+        // 强制提取真实的 JSON 字符串，剥离任何可能被混入的闲聊废话或 Markdown 标记
+        $schemaStr = trim($schemaStr);
+        $start = strpos($schemaStr, '{');
+        $end = strrpos($schemaStr, '}');
+        if ($start !== false && $end !== false) {
+            $schemaStr = substr($schemaStr, $start, $end - $start + 1);
+        }
+        
         echo json_encode(['status' => 'success', 'schema' => $schemaStr]); exit;
     }
 }
@@ -560,8 +601,9 @@ if (isset($_GET['api'])) {
                                 <h4 class="font-semibold text-xs text-gray-500 uppercase tracking-wider">Schema Markup (JSON-LD)</h4>
                                 <div>
                                     <textarea x-model="seoData.schemaCode" rows="6" class="w-full text-xs font-mono border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-primary" placeholder="{ &quot;@context&quot;: &quot;https://schema.org&quot; ... }"></textarea>
-                                    <button @click="generateSchemaWithAI()" class="mt-2 w-full text-sm bg-purple-50 text-purple-700 font-medium px-3 py-2 rounded hover:bg-purple-100 border border-purple-200 transition flex items-center justify-center gap-2">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> 使用 AI 智能生成 Schema
+                                    <button @click="generateSchemaWithAI()" type="button" :disabled="isGenerating" class="mt-2 w-full text-sm bg-purple-50 text-purple-700 font-medium px-3 py-2 rounded hover:bg-purple-100 border border-purple-200 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> 
+                                        <span x-text="isGenerating ? '正在由 AI 撰写中 (约需10秒)...' : '使用 AI 智能生成 Schema'"></span>
                                     </button>
                                 </div>
                             </div>
@@ -617,6 +659,17 @@ if (isset($_GET['api'])) {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">.htaccess</label>
                         <textarea x-model="globalSeoFiles.htaccess" rows="8" class="w-full font-mono text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary"></textarea>
+                    </div>
+                    
+                    <hr class="my-4 border-gray-200">
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Global &lt;head&gt; Scripts <span class="text-xs text-gray-500 font-normal">(如 GTM, GA4, FB Pixel等)</span></label>
+                        <textarea x-model="globalSeoFiles.head_scripts" rows="6" class="w-full font-mono text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary placeholder-gray-400" placeholder="<!-- 将自动注入全站的 <head> 内 -->"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Global &lt;body&gt; Scripts <span class="text-xs text-gray-500 font-normal">(如 GTM 的 &lt;noscript&gt; 标签等)</span></label>
+                        <textarea x-model="globalSeoFiles.body_scripts" rows="6" class="w-full font-mono text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary placeholder-gray-400" placeholder="<!-- 将自动注入全站的 <body> 下方 -->"></textarea>
                     </div>
                 </div>
             </div>
@@ -770,7 +823,8 @@ if (isset($_GET['api'])) {
                 seoData: { 
                     title: '', description: '', canonical: '', robotsIndex: 'index', robotsFollow: 'follow',
                     ogTitle: '', ogDescription: '', ogImage: '', twitterCard: 'summary_large_image', 
-                    twitterSite: '', fbPublisher: '' 
+                    twitterSite: '', fbPublisher: '',
+                    schemaCode: ''
                 },
                 
                 cropperModalOpen: false,
@@ -778,9 +832,11 @@ if (isset($_GET['api'])) {
                 originalFileName: '',
                 cropperInstance: null,
                 
-                globalSeoFiles: { sitemap: '', robots: '', llm: '', htaccess: '' },
+                globalSeoFiles: { sitemap: '', robots: '', llm: '', htaccess: '', head_scripts: '', body_scripts: '' },
                 
                 aiSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '' },
+                
+                isGenerating: false, // 控制按钮 loading 状态
 
                 init() {
                     this.fetchPages();
@@ -909,13 +965,46 @@ if (isset($_GET['api'])) {
                     }
                 },
 
+            // 获取全局 SEO 文件内容
+            async fetchGlobalSeo() {
+                try {
+                    const res = await fetch('cms.php?api=get_global_seo');
+                    const json = await res.json();
+                    if (json.status === 'success') {
+                        this.globalSeoFiles = json.data;
+                    }
+                } catch (error) {
+                    console.error("加载全局SEO文件失败", error);
+                }
+            },
+            
+            // 保存全局 SEO 文件内容
+            async saveGlobalSeo() {
+                try {
+                    let formData = new FormData();
+                    formData.append('sitemap', this.globalSeoFiles.sitemap);
+                    formData.append('robots', this.globalSeoFiles.robots);
+                    formData.append('llm', this.globalSeoFiles.llm);
+                    formData.append('htaccess', this.globalSeoFiles.htaccess);
+                    formData.append('head_scripts', this.globalSeoFiles.head_scripts);
+                    formData.append('body_scripts', this.globalSeoFiles.body_scripts);
+
+                    const res = await fetch('cms.php?api=save_global_seo', { method: 'POST', body: formData });
+                    const json = await res.json();
+                    if (json.status === 'success') alert(json.message || '全局 SEO 设置已成功保存！');
+                    else alert('保存失败: ' + (json.message || '未知错误'));
+                } catch (e) {
+                    alert('网络请求出错');
+                }
+            },
+
                  // 获取 AI 设置
                 async fetchAiSettings() {
                     try {
                         const res = await fetch('cms.php?api=get_settings');
                         const json = await res.json();
-                        if (json.status === 'success' && json.data.ai_provider) {
-                            this.aiSettings.ai_provider = json.data.ai_provider;
+                    if (json.status === 'success' && typeof json.data === 'object' && json.data !== null) {
+                        this.aiSettings.ai_provider = json.data.ai_provider || 'openai';
                             this.aiSettings.ai_api_key = json.data.ai_api_key || '';
                             this.aiSettings.ai_model = json.data.ai_model || '';
                         }
@@ -948,6 +1037,8 @@ if (isset($_GET['api'])) {
                     if (!iframe || !iframe.contentWindow) return;
                     const htmlContent = iframe.contentWindow.document.documentElement.outerHTML;
                     
+                    this.isGenerating = true;
+                    
                     try {
                         let formData = new FormData();
                         formData.append('html', htmlContent);
@@ -957,17 +1048,22 @@ if (isset($_GET['api'])) {
                         
                         const res = await fetch('cms.php?api=generate_schema', { method: 'POST', body: formData });
                         const json = await res.json();
-                        if (json.status === 'success') this.seoData.schemaCode = json.schema;
-                        else alert('生成失败: ' + (json.message || '请检查 API 状态'));
-                    } catch (e) { alert('生成请求出错，请检查网络'); }
+                        if (json.status === 'success') {
+                            this.seoData.schemaCode = json.schema;
+                            alert('Schema 智能生成成功！');
+                        } else {
+                            alert('生成失败: ' + (json.message || '未知错误'));
+                        }
+                    } catch (e) { alert('生成请求出错，请检查网络状态'); }
+                    finally { this.isGenerating = false; }
                 },
 
                 getPageTitle() {
                     if (this.editingPage) return '可视化编辑';
                     if (this.currentTab === 'media') return '媒体管理';
-                    if (this.currentTab === 'static') return '常规页面管理';
                     if (this.currentTab === 'global_seo') return 'Global SEO 配置';
                     if (this.currentTab === 'ai_settings') return 'AI API 配置';
+                    if (this.currentTab === 'static') return '常规页面管理';
                     return this.currentTab.replace('template_', '') + ' 模板管理';
                 },
 
@@ -986,8 +1082,9 @@ if (isset($_GET['api'])) {
                             if (!iframeDoc.getElementById('cms-editor-inject')) {
                                 const script = iframeDoc.createElement('script');
                                 script.id = 'cms-editor-inject';
-                                // 注意这里请求的路径，因为 iframe 渲染的是根目录下的页面，所以路径为 cms/js/editor-inject.js
-                                script.src = 'cms/js/editor-inject.js'; 
+                                // 动态计算相对于网站根目录的路径层级，防止子文件夹（如模板页面）出现 404
+                                const depth = (page.filename.match(/\//g) || []).length;
+                                script.src = (depth > 0 ? '../'.repeat(depth) : '') + 'cms/js/editor-inject.js';
                                 iframeDoc.body.appendChild(script);
                             }
                         } catch (e) {
@@ -1062,7 +1159,9 @@ if (isset($_GET['api'])) {
                 requestSave() {
                     const iframe = document.getElementById('visual-editor');
                     if (iframe && iframe.contentWindow) {
-                        iframe.contentWindow.postMessage({ action: 'request_save', seoData: this.seoData }, '*');
+                        // 通过 JSON 序列化和反序列化来创建一个“干净”的对象，去除 Alpine.js 的 Proxy 包装，防止 postMessage 报错
+                        const cleanSeoData = JSON.parse(JSON.stringify(this.seoData));
+                        iframe.contentWindow.postMessage({ action: 'request_save', seoData: cleanSeoData }, '*');
                     }
                 },
                 
