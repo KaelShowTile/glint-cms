@@ -323,7 +323,7 @@ if (isset($_GET['api'])) {
         curl_setopt($ch, CURLOPT_TIMEOUT, 120); // 增加超时时间至 120 秒防止长文本生成断连
 
         if ($provider === 'gemini') {
-            $model = $model ?: 'gemini-1.5-flash';
+            $model = $model ?: 'gemini-2.5-flash';
             $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
             $data = json_encode([
                 'contents' => [['parts' => [['text' => $prompt]]]],
@@ -334,12 +334,12 @@ if (isset($_GET['api'])) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
         } else {
             $url = $provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
-            if ($provider === 'groq') $model = $model ?: 'mixtral-8x7b-32768';
+            if ($provider === 'groq') $model = $model ?: 'qwen/qwen3-32b';
             if ($provider === 'openai') $model = $model ?: 'gpt-3.5-turbo';
             $data = json_encode([
                 'model' => $model, 
                 'messages' => [['role' => 'user', 'content' => $prompt]],
-                'max_tokens' => 8192 // 增加 OpenAI/Groq 最大生成长度
+                'max_tokens' => $provider === 'groq' ? 2048 : 6000 // 降低 Groq 的 max_tokens 避免超出免费额度的 TPM 限制
             ]);
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey]);
@@ -359,9 +359,9 @@ if (isset($_GET['api'])) {
 
         $schemaStr = '';
         if ($provider === 'gemini') {
-            $schemaStr = $resData['candidates']['content']['parts']['text'] ?? '';
+            $schemaStr = $resData['candidates'][0]['content']['parts'][0]['text'] ?? '';
         } else {
-            $schemaStr = $resData['choices']['message']['content'] ?? '';
+            $schemaStr = $resData['choices'][0]['message']['content'] ?? '';
         }
         
         // 如果由于额度不足、Key错误等原因未返回内容，抓取错误信息回传
@@ -1151,7 +1151,19 @@ if (isset($_GET['api'])) {
                     } else if (data.action === 'save_html') {
                         this.saveHtmlToServer(data.html);
                     } else if (data.action === 'load_seo') {
-                        this.seoData = data.seoData; // 页面加载后自动填入原有的 SEO 数据
+                         // 合并 SEO 数据，防止 editor-inject.js 传回的数据缺失 schemaCode 字段
+                        this.seoData = { ...this.seoData, ...data.seoData };
+                        
+                        // 尝试手动从 iframe 中提取已有的 Schema 代码
+                        const iframe = document.getElementById('visual-editor');
+                        if (iframe && iframe.contentWindow) {
+                            try {
+                                const schemaScript = iframe.contentWindow.document.querySelector('script[type="application/ld+json"]');
+                                this.seoData.schemaCode = schemaScript ? schemaScript.innerHTML : '';
+                            } catch (e) {
+                                console.warn('无法获取 Schema 标签:', e);
+                            }
+                        }
                     }
                 },
                 
