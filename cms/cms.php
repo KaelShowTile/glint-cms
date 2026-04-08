@@ -751,11 +751,68 @@ if (isset($_GET['api'])) {
                             <label class="block text-sm font-medium text-gray-700 mb-1">替代文本 (Alt)</label>
                             <input type="text" x-model="editingData.alt" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm">
                         </div>
+                        <div class="pt-2 flex gap-2">
+                            <button @click="openVideoConversion()" type="button" class="flex-1 text-xs bg-indigo-50 text-indigo-600 px-3 py-2 rounded border border-indigo-200 hover:bg-indigo-100 transition font-medium">将此图片转换成视频</button>
+                            <button type="button" class="flex-1 text-xs bg-gray-50 text-gray-400 px-3 py-2 rounded border border-gray-200 cursor-not-allowed font-medium" title="功能开发中，敬请期待">将此图片转换成轮播</button>
+                        </div>
                     </template>
                 </div>
                 <div class="bg-gray-50 px-4 py-3 border-t flex justify-end space-x-2">
                     <button @click="mediaModalOpen = false" class="px-4 py-2 bg-white border rounded text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>
                     <button @click="saveMedia()" class="px-4 py-2 bg-primary text-white rounded text-sm font-medium hover:bg-blue-700">应用修改</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 转换为视频弹窗 -->
+        <div x-show="videoModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+            <div class="bg-white rounded-lg shadow-xl w-96 overflow-hidden" @click.away="videoModalOpen = false">
+                <div class="bg-gray-50 px-4 py-3 border-b font-medium">转换为视频元素</div>
+                <div class="p-4 space-y-4">
+                    <div class="flex items-center space-x-4 mb-2">
+                        <label class="flex items-center text-sm cursor-pointer">
+                            <input type="radio" x-model="videoData.type" value="local" class="mr-1 text-primary"> 本地视频
+                        </label>
+                        <label class="flex items-center text-sm cursor-pointer">
+                            <input type="radio" x-model="videoData.type" value="embed" class="mr-1 text-primary"> 嵌入视频 (iframe)
+                        </label>
+                    </div>
+
+                    <!-- 本地视频配置 -->
+                    <template x-if="videoData.type === 'local'">
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">视频地址 (从媒体库选择或输入)</label>
+                                <input type="text" x-model="videoData.src" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm">
+                                
+                                <div class="mt-3 h-32 overflow-y-auto border rounded bg-gray-50 grid grid-cols-3 gap-2 p-2">
+                                    <template x-for="media in mediaFiles.filter(m => m.url.match(/\.(mp4|webm)$/i))" :key="media.name">
+                                        <div class="h-16 bg-black flex items-center justify-center cursor-pointer border hover:border-primary hover:shadow-md transition rounded overflow-hidden" @click="videoData.src = media.url" :title="media.name">
+                                            <span class="text-white text-[10px] break-all p-1 text-center" x-text="media.name"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 mt-2">
+                                <label class="flex items-center text-sm text-gray-700"><input type="checkbox" x-model="videoData.autoplay" class="mr-2 rounded text-primary"> 自动播放</label>
+                                <label class="flex items-center text-sm text-gray-700"><input type="checkbox" x-model="videoData.loop" class="mr-2 rounded text-primary"> 循环播放</label>
+                                <label class="flex items-center text-sm text-gray-700"><input type="checkbox" x-model="videoData.muted" class="mr-2 rounded text-primary"> 静音</label>
+                                <label class="flex items-center text-sm text-gray-700"><input type="checkbox" x-model="videoData.controls" class="mr-2 rounded text-primary"> 显示控制条</label>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- 嵌入视频配置 -->
+                    <template x-if="videoData.type === 'embed'">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Iframe 代码 (如 YouTube/Vimeo)</label>
+                            <textarea x-model="videoData.iframeCode" rows="6" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm" placeholder="<iframe src='...' width='100%' height='100%' frameborder='0' allowfullscreen></iframe>"></textarea>
+                        </div>
+                    </template>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 border-t flex justify-end space-x-2">
+                    <button @click="videoModalOpen = false" class="px-4 py-2 bg-white border rounded text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>
+                    <button @click="saveVideoConversion()" class="px-4 py-2 bg-primary text-white rounded text-sm font-medium hover:bg-blue-700">确认替换</button>
                 </div>
             </div>
         </div>
@@ -817,7 +874,9 @@ if (isset($_GET['api'])) {
                 
                 linkModalOpen: false,
                 mediaModalOpen: false,
+                videoModalOpen: false,
                 editingData: {}, // 临时存储由 iframe 传来的待编辑数据
+                videoData: { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false },
                 
                 showSeoPanel: false,
                 seoData: { 
@@ -1213,6 +1272,31 @@ if (isset($_GET['api'])) {
                         updates: { src: this.editingData.src, alt: this.editingData.alt }
                     }, '*');
                     this.mediaModalOpen = false;
+                },
+                
+                openVideoConversion() {
+                    this.mediaModalOpen = false;
+                    // 初始化视频数据，默认开启自动播放和静音，适合通常设计稿转换的无声背景视频
+                    this.videoData = { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false };
+                    this.videoModalOpen = true;
+                },
+
+                saveVideoConversion() {
+                    if (this.videoData.type === 'local' && !this.videoData.src) {
+                        alert('请选择或输入视频地址');
+                        return;
+                    }
+                    if (this.videoData.type === 'embed' && !this.videoData.iframeCode) {
+                        alert('请输入 Iframe 代码');
+                        return;
+                    }
+                    const iframe = document.getElementById('visual-editor');
+                    iframe.contentWindow.postMessage({
+                        action: 'replace_with_video',
+                        runtimeId: this.editingData.runtimeId,
+                        videoData: JSON.parse(JSON.stringify(this.videoData))
+                    }, '*');
+                    this.videoModalOpen = false;
                 },
 
                 // 复制模板页面

@@ -264,6 +264,48 @@
             const cleanHtml = '<!DOCTYPE html>\n' + docClone.outerHTML;
             window.parent.postMessage({ action: 'save_html', html: cleanHtml }, '*');
         }
+        else if (data.action === 'request_save') {
+            const targetImg = document.querySelector(`[data-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
+        
+            if (targetImg && targetImg.tagName.toLowerCase() === 'img') {
+                let newVideoEl;
+                
+                if (data.videoData.type === 'local') {
+                    newVideoEl = document.createElement('video');
+                    newVideoEl.src = data.videoData.src;
+                    if (data.videoData.autoplay) newVideoEl.autoplay = true;
+                    if (data.videoData.loop) newVideoEl.loop = true;
+                    if (data.videoData.muted) newVideoEl.muted = true;
+                    if (data.videoData.controls) newVideoEl.controls = true;
+                    newVideoEl.setAttribute('playsinline', ''); // 增加移动端内联播放支持
+                } else if (data.videoData.type === 'embed') {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = data.videoData.iframeCode.trim();
+                    newVideoEl = tempDiv.firstElementChild; 
+                }
+
+                if (newVideoEl) {
+                    // 将原图片的 class 和行内 style 都继承给新视频元素，防止排版崩溃
+                    newVideoEl.className = targetImg.className;
+                    if (targetImg.getAttribute('style')) {
+                        newVideoEl.setAttribute('style', targetImg.getAttribute('style'));
+                    }
+                    
+                    // 将 CMS 识别所需的属性继承过去，并把类型变更为视频，方便以后继续被点击编辑
+                    // （你可以根据你的实际逻辑将 data-cms-type 设为 video 或是保留）
+                    newVideoEl.setAttribute('data-cms-type', 'video');
+                    if (targetImg.hasAttribute('data-runtime-id')) {
+                        newVideoEl.setAttribute('data-runtime-id', targetImg.getAttribute('data-runtime-id'));
+                    }
+
+                    // 替换 DOM 元素
+                    targetImg.parentNode.replaceChild(newVideoEl, targetImg);
+                    
+                    // 重新给新元素绑定点击监听事件（触发弹窗）
+                    // bindCmsClickListener(newVideoEl); <-- 请调用你原有文件中负责给新元素绑定点击事件的函数
+                }
+            }
+        }
     });
 
     console.log('CMS 注入脚本已成功加载并接管页面。');
