@@ -264,8 +264,8 @@
             const cleanHtml = '<!DOCTYPE html>\n' + docClone.outerHTML;
             window.parent.postMessage({ action: 'save_html', html: cleanHtml }, '*');
         }
-        else if (data.action === 'request_save') {
-            const targetImg = document.querySelector(`[data-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
+        else if (data.action === 'replace_with_video') {
+            const targetImg = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
         
             if (targetImg && targetImg.tagName.toLowerCase() === 'img') {
                 let newVideoEl;
@@ -294,8 +294,8 @@
                     // 将 CMS 识别所需的属性继承过去，并把类型变更为视频，方便以后继续被点击编辑
                     // （你可以根据你的实际逻辑将 data-cms-type 设为 video 或是保留）
                     newVideoEl.setAttribute('data-cms-type', 'video');
-                    if (targetImg.hasAttribute('data-runtime-id')) {
-                        newVideoEl.setAttribute('data-runtime-id', targetImg.getAttribute('data-runtime-id'));
+                    if (targetImg.hasAttribute('data-cms-runtime-id')) {
+                        newVideoEl.setAttribute('data-cms-runtime-id', targetImg.getAttribute('data-cms-runtime-id'));
                     }
 
                     // 替换 DOM 元素
@@ -304,6 +304,69 @@
                     // 重新给新元素绑定点击监听事件（触发弹窗）
                     // bindCmsClickListener(newVideoEl); <-- 请调用你原有文件中负责给新元素绑定点击事件的函数
                 }
+            }
+        }else if (data.action === 'replace_with_slider') {
+            const targetImg = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement;
+            
+            if (targetImg && targetImg.tagName.toLowerCase() === 'img') {
+                const sd = data.sliderData;
+                
+                // 1. 如果页面中没有引用过 Swiper Elements 库，则自动往 Head 插入外链
+                if (!document.querySelector('script#swiper-element-lib')) {
+                    const swiperScript = document.createElement('script');
+                    swiperScript.id = 'swiper-element-lib';
+                    swiperScript.src = 'https://cdn.jsdelivr.net/npm/swiper@11/swiper-element-bundle.min.js';
+                    document.head.appendChild(swiperScript);
+                }
+                
+                // 2. 创建 Swiper Container (基于 Web Components 标准)
+                const swiperContainer = document.createElement('swiper-container');
+                swiperContainer.style.width = sd.width;
+                swiperContainer.style.height = sd.height;
+                if (sd.pagination) swiperContainer.setAttribute('pagination', 'true');
+                swiperContainer.setAttribute('css-mode', 'true');
+                
+                // 继承 CMS 属性，并使它本身作为 slider 可以被识别
+                swiperContainer.setAttribute('data-cms-type', 'slider');
+                if (targetImg.hasAttribute('data-cms-runtime-id')) {
+                    swiperContainer.setAttribute('data-cms-runtime-id', targetImg.getAttribute('data-cms-runtime-id'));
+                }
+
+                // 排版位置到 Flex 样式的映射
+                const posMap = {
+                    'top-left': 'align-items: flex-start; justify-content: flex-start; text-align: left;',
+                    'top-center': 'align-items: flex-start; justify-content: center; text-align: center;',
+                    'top-right': 'align-items: flex-start; justify-content: flex-end; text-align: right;',
+                    'center-left': 'align-items: center; justify-content: flex-start; text-align: left;',
+                    'center-center': 'align-items: center; justify-content: center; text-align: center;',
+                    'center-right': 'align-items: center; justify-content: flex-end; text-align: right;',
+                    'bottom-left': 'align-items: flex-end; justify-content: flex-start; text-align: left;',
+                    'bottom-center': 'align-items: flex-end; justify-content: center; text-align: center;',
+                    'bottom-right': 'align-items: flex-end; justify-content: flex-end; text-align: right;'
+                };
+
+                // 3. 循环构建每个 Slide
+                sd.slides.forEach(slide => {
+                    const slideEl = document.createElement('swiper-slide');
+                    slideEl.style.position = 'relative';
+                    
+                    // 构建背景图和文字层 HTML
+                    const bgHtml = `<img src="${slide.src}" style="width: 100%; height: 100%; object-fit: cover; display: block;" alt="${slide.title}">`;
+                    const textHtml = (slide.title || slide.description) ? `
+                        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; padding: 3rem; box-sizing: border-box; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,0.7); color: white; ${posMap[slide.textPosition]}">
+                            <div style="max-width: 80%; pointer-events: auto;">
+                                ${slide.title ? `<h2 style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem; line-height: 1.2;">${slide.title}</h2>` : ''}
+                                ${slide.description ? `<p style="font-size: 1.125rem; line-height: 1.5; opacity: 0.9;">${slide.description}</p>` : ''}
+                            </div>
+                        </div>
+                    ` : '';
+                    
+                    slideEl.innerHTML = bgHtml + textHtml;
+                    swiperContainer.appendChild(slideEl);
+                });
+
+                // 4. 替换真实的 DOM 元素
+                targetImg.parentNode.replaceChild(swiperContainer, targetImg);
             }
         }
     });

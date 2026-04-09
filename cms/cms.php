@@ -747,13 +747,15 @@ if (isset($_GET['api'])) {
                         <p class="text-xs text-gray-500 mt-1">点击上方图库的图片快速替换，或输入外部链接。</p>
                     </div>
                     <template x-if="editingData.tagName === 'img'">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">替代文本 (Alt)</label>
-                            <input type="text" x-model="editingData.alt" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm">
-                        </div>
-                        <div class="pt-2 flex gap-2">
-                            <button @click="openVideoConversion()" type="button" class="flex-1 text-xs bg-indigo-50 text-indigo-600 px-3 py-2 rounded border border-indigo-200 hover:bg-indigo-100 transition font-medium">将此图片转换成视频</button>
-                            <button type="button" class="flex-1 text-xs bg-gray-50 text-gray-400 px-3 py-2 rounded border border-gray-200 cursor-not-allowed font-medium" title="功能开发中，敬请期待">将此图片转换成轮播</button>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">替代文本 (Alt)</label>
+                                <input type="text" x-model="editingData.alt" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm">
+                            </div>
+                            <div class="pt-1 flex gap-2">
+                                <button @click="openVideoConversion()" type="button" class="flex-1 text-xs bg-indigo-50 text-indigo-600 px-3 py-2 rounded border border-indigo-200 hover:bg-indigo-100 transition font-medium">将此图片转换成视频</button>
+                                <button @click="openSliderConversion()" type="button" class="flex-1 text-xs bg-teal-50 text-teal-600 px-3 py-2 rounded border border-teal-200 hover:bg-teal-100 transition font-medium">将此图片转换成轮播</button>
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -817,6 +819,85 @@ if (isset($_GET['api'])) {
             </div>
         </div>
 
+        <!-- 转换为轮播(Swiper)弹窗 -->
+        <div x-show="sliderModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+            <div class="bg-white rounded-lg shadow-xl w-[32rem] max-h-[90vh] flex flex-col overflow-hidden" @click.away="sliderModalOpen = false">
+                <div class="bg-gray-50 px-4 py-3 border-b font-medium">转换为轮播图 (Swiper)</div>
+                <div class="p-4 overflow-y-auto flex-1 space-y-5 bg-gray-50">
+                    
+                    <!-- 轮播全局设置 -->
+                    <div class="bg-white p-3 rounded border shadow-sm space-y-3">
+                        <h4 class="text-xs font-semibold text-gray-500 uppercase">全局设置</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">宽度 (Width)</label>
+                                <input type="text" x-model="sliderData.width" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary focus:border-primary" placeholder="例如: 100%">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">高度 (Height)</label>
+                                <input type="text" x-model="sliderData.height" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary focus:border-primary" placeholder="例如: 400px 或 auto">
+                            </div>
+                        </div>
+                        <label class="flex items-center text-sm text-gray-700">
+                            <input type="checkbox" x-model="sliderData.pagination" class="mr-2 rounded text-primary"> 
+                            显示底部指示器 (Pagination)
+                        </label>
+                    </div>
+
+                    <!-- Slides 列表 (Repeater) -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-xs font-semibold text-gray-500 uppercase">幻灯片内容 (Slides)</h4>
+                            <button @click="addSlide()" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-200 hover:bg-blue-100">+ 添加一项</button>
+                        </div>
+                        
+                        <template x-for="(slide, index) in sliderData.slides" :key="slide.id">
+                            <div class="bg-white p-3 rounded border shadow-sm relative">
+                                <button x-show="sliderData.slides.length > 1" @click="removeSlide(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 text-xs px-2 py-1 bg-red-50 rounded border border-red-100">删除</button>
+                                <div class="space-y-3 mt-1">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-700 mb-1">背景图片地址</label>
+                                        <div class="flex gap-2">
+                                            <input type="text" x-model="slide.src" class="flex-1 text-sm border-gray-300 border rounded px-2 py-1 focus:ring-primary focus:border-primary">
+                                        </div>
+                                        <!-- 小型媒体选择器 -->
+                                        <div class="mt-2 h-16 overflow-y-auto border rounded bg-gray-50 grid grid-cols-6 gap-1 p-1">
+                                            <template x-for="media in mediaFiles.filter(m => m.url.match(/\.(jpg|jpeg|png|webp)$/i))" :key="media.name">
+                                                <img :src="'../' + media.url" class="object-cover w-full h-8 cursor-pointer border hover:border-primary rounded" @click="slide.src = media.url" :title="media.name">
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">主标题 (Title)</label>
+                                            <input type="text" x-model="slide.title" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">文本排版位置</label>
+                                            <select x-model="slide.textPosition" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary">
+                                                <option value="top-left">上方左对齐</option><option value="top-center">上方居中</option><option value="top-right">上方右对齐</option>
+                                                <option value="center-left">中间左对齐</option><option value="center-center">中间居中</option><option value="center-right">中间右对齐</option>
+                                                <option value="bottom-left">下方左对齐</option><option value="bottom-center">下方居中</option><option value="bottom-right">下方右对齐</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-700 mb-1">描述 (Description)</label>
+                                        <textarea x-model="slide.description" rows="2" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                </div>
+                <div class="bg-white px-4 py-3 border-t flex justify-end space-x-2">
+                    <button @click="sliderModalOpen = false" class="px-4 py-2 bg-white border rounded text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>
+                    <button @click="saveSliderConversion()" class="px-4 py-2 bg-primary text-white rounded text-sm font-medium hover:bg-blue-700">生成轮播并替换</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 历史备份弹窗 -->
         <div x-show="historyModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
             <div class="bg-white rounded-lg shadow-xl w-96 overflow-hidden" @click.away="historyModalOpen = false">
@@ -875,8 +956,10 @@ if (isset($_GET['api'])) {
                 linkModalOpen: false,
                 mediaModalOpen: false,
                 videoModalOpen: false,
+                sliderModalOpen: false,
                 editingData: {}, // 临时存储由 iframe 传来的待编辑数据
                 videoData: { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false },
+                sliderData: { width: '100%', height: '400px', pagination: true, slides: [] },
                 
                 showSeoPanel: false,
                 seoData: { 
@@ -1130,7 +1213,8 @@ if (isset($_GET['api'])) {
                 openEditor(page) {
                     this.editingPage = page;
                     // ../ 因为我们处于 cms/ 目录下，静态文件在上一级
-                    const targetUrl = '../' + page.filename; 
+                    // 追加时间戳防止静态网页被浏览器缓存，确保每次打开看到的都是硬盘上的最新代码
+                    const targetUrl = '../' + page.filename + '?v=' + new Date().getTime(); 
                     const iframe = document.getElementById('visual-editor');
                     iframe.src = targetUrl;
                     
@@ -1187,7 +1271,7 @@ if (isset($_GET['api'])) {
                             this.historyModalOpen = false;
                             // 重新加载 iframe 让恢复后的网页生效
                             const iframe = document.getElementById('visual-editor');
-                            iframe.src = iframe.src;
+                            iframe.src = '../' + this.editingPage.filename + '?v=' + new Date().getTime();
                         } else {
                             alert('恢复失败: ' + json.message);
                         }
@@ -1297,6 +1381,40 @@ if (isset($_GET['api'])) {
                         videoData: JSON.parse(JSON.stringify(this.videoData))
                     }, '*');
                     this.videoModalOpen = false;
+                },
+                
+                openSliderConversion() {
+                    this.mediaModalOpen = false;
+                    // 初始化轮播数据，默认包含一张当前的图片作为占位
+                    this.sliderData = {
+                        width: '100%',
+                        height: '400px',
+                        pagination: true,
+                        slides: [
+                            { id: Date.now(), src: this.editingData.src || '', title: 'Slide Title', description: 'Slider description text goes here.', textPosition: 'center-center' }
+                        ]
+                    };
+                    this.sliderModalOpen = true;
+                },
+                
+                addSlide() {
+                    this.sliderData.slides.push({ id: Date.now(), src: '', title: '', description: '', textPosition: 'center-center' });
+                },
+                
+                removeSlide(index) {
+                    if (this.sliderData.slides.length > 1) {
+                        this.sliderData.slides.splice(index, 1);
+                    }
+                },
+                
+                saveSliderConversion() {
+                    const iframe = document.getElementById('visual-editor');
+                    iframe.contentWindow.postMessage({
+                        action: 'replace_with_slider',
+                        runtimeId: this.editingData.runtimeId,
+                        sliderData: JSON.parse(JSON.stringify(this.sliderData))
+                    }, '*');
+                    this.sliderModalOpen = false;
                 },
 
                 // 复制模板页面
