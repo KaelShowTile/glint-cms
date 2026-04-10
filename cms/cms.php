@@ -1291,6 +1291,19 @@ if (isset($_GET['api'])) {
                     } else if (data.action === 'edit_media') {
                         this.editingData = data;
                         this.mediaModalOpen = true;
+                    } else if (data.action === 'edit_video') {
+                        this.editingData = { runtimeId: data.runtimeId, tagName: 'video' };
+                        this.videoData = data.config || { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false };
+                        this.videoModalOpen = true;
+                    } else if (data.action === 'edit_slider') {
+                        this.editingData = { runtimeId: data.runtimeId, tagName: 'slider' };
+                        let config = data.config || { width: '100%', height: '400px', pagination: true, slides: [] };
+                        // 如果没有读取到任何 slide（比如第一次点击原生的占位符），注入一个默认的占位 Slide
+                        if (!config.slides || config.slides.length === 0) {
+                            config.slides = [{ id: Date.now(), src: data.src || '', title: 'Slide Title', description: 'Slider description text goes here.', textPosition: 'center-center' }];
+                        }
+                        this.sliderData = config;
+                        this.sliderModalOpen = true;
                     } else if (data.action === 'save_html') {
                         this.saveHtmlToServer(data.html);
                     } else if (data.action === 'load_seo') {

@@ -104,6 +104,73 @@
     // 页面加载完成后立即注入工具栏
     initListToolbars();
 
+    // 初始化多媒体元素(轮播/视频)的常驻悬浮工具栏
+    function initMediaToolbars() {
+        document.querySelectorAll('[data-cms-type="slider"], [data-cms-type="video"]').forEach(el => {
+            // 检查父元素是否已经是 wrapper，避免重复包装
+            if (el.parentElement && el.parentElement.classList.contains('cms-media-wrapper')) return;
+            
+            // 清理元素本身可能存在的旧 toolbar
+            const oldToolbar = el.querySelector(':scope > .cms-media-toolbar');
+            if (oldToolbar) oldToolbar.remove();
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'cms-floating-toolbar cms-media-toolbar';
+            toolbar.contentEditable = "false";
+            
+            // 覆盖默认样式，使其一直显示并在左上角，不受外部 iframe 点击拦截的影响
+            toolbar.style.opacity = '1';
+            toolbar.style.top = '8px';
+            toolbar.style.left = '8px';
+            toolbar.style.right = 'auto';
+            toolbar.style.zIndex = '99999';
+            toolbar.style.backgroundColor = '#4f46e5';
+
+            const type = el.getAttribute('data-cms-type');
+            const typeName = type === 'slider' ? '轮播' : '视频';
+
+            toolbar.innerHTML = `<button type="button" class="cms-btn-edit" style="color: white; font-weight: bold;">⚙️ 编辑${typeName}</button>`;
+
+            // 阻止点击冒泡触发外层的别的选中事件
+            toolbar.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+            });
+
+            toolbar.querySelector('.cms-btn-edit').onclick = (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (!el.hasAttribute('data-cms-runtime-id')) {
+                    el.setAttribute('data-cms-runtime-id', 'cms-id-' + Math.random().toString(36).substr(2, 9));
+                }
+                const configStr = el.getAttribute('data-cms-config');
+                window.parent.postMessage({
+                    action: type === 'slider' ? 'edit_slider' : 'edit_video',
+                    runtimeId: el.getAttribute('data-cms-runtime-id'),
+                    config: configStr ? JSON.parse(configStr) : null
+                }, '*');
+            };
+
+            // 对于 iframe、video、img 等无法容纳 HTML 子元素的标签，必须外层套一个 div 才能放置悬浮按钮
+            const tagName = el.tagName.toLowerCase();
+            if (['img', 'video', 'iframe'].includes(tagName)) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'cms-media-wrapper';
+                wrapper.style.position = 'relative';
+                wrapper.style.display = window.getComputedStyle(el).display.includes('inline') ? 'inline-block' : 'block';
+                el.parentNode.insertBefore(wrapper, el);
+                wrapper.appendChild(el);
+                wrapper.appendChild(toolbar);
+            } else {
+                // 其他可以正常容纳子元素的标签（如 div）直接放入内部
+                el.style.position = 'relative';
+                el.appendChild(toolbar);
+            }
+        });
+    }
+    // 初始执行一次
+    initMediaToolbars();
+
     // 提取并发送页面的 SEO Meta 数据给父窗口
     setTimeout(() => {
         function getMetaContent(selector, attr = 'content') {
@@ -180,13 +247,30 @@
             }, '*');
         } 
         // 处理图片/视频的编辑
-        else if (type === 'img' || type === 'video' || tagName === 'img' || tagName === 'video') {
+        else if (type === 'img' || tagName === 'img') {
             window.parent.postMessage({
                 action: 'edit_media',
                 runtimeId: runtimeId,
                 tagName: tagName,
                 src: target.getAttribute('src') || '',
                 alt: target.getAttribute('alt') || ''
+            }, '*');
+        }else if (type === 'video') {
+            const configStr = target.getAttribute('data-cms-config');
+            window.parent.postMessage({
+                action: 'edit_video',
+                runtimeId: runtimeId,
+                config: configStr ? JSON.parse(configStr) : null
+            }, '*');
+        }
+        // 处理slider
+        else if (type === 'slider') {
+            const configStr = target.getAttribute('data-cms-config');
+            window.parent.postMessage({
+                action: 'edit_slider',
+                runtimeId: runtimeId,
+                config: configStr ? JSON.parse(configStr) : null,
+                src: tagName === 'img' ? target.getAttribute('src') : ''
             }, '*');
         }
     });
@@ -247,6 +331,17 @@
                 }
             }
 
+            // 清理保存时为了自闭合标签而注入的临时包裹层 (wrapper)，使其恢复原样
+            docClone.querySelectorAll('.cms-media-wrapper').forEach(wrapper => {
+                wrapper.querySelectorAll('.cms-floating-toolbar').forEach(t => t.remove());
+                const child = wrapper.firstElementChild;
+                if (child) {
+                    wrapper.parentNode.replaceChild(child, wrapper);
+                } else {
+                    wrapper.remove();
+                }
+            });
+
             // 深度克隆整个文档 DOM，防止清理操作破坏当前用户正在编辑的界面
             const docClone = document.documentElement.cloneNode(true);
             
@@ -265,9 +360,22 @@
             window.parent.postMessage({ action: 'save_html', html: cleanHtml }, '*');
         }
         else if (data.action === 'replace_with_video') {
-            const targetImg = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
+             // 寻找要被替换的元素，不仅可以是 img，也可能是现有的 video wrapper
+            const targetEl = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
         
-            if (targetImg && targetImg.tagName.toLowerCase() === 'img') {
+            if (targetEl) {
+                // 如果被临时 wrapper 包裹着，我们需要连同 wrapper 一起替换掉，避免嵌套冗余
+                const replaceTarget = targetEl.parentElement && targetEl.parentElement.classList.contains('cms-media-wrapper') ? targetEl.parentElement : targetEl;
+
+                // 建立一个包裹器，确保工具栏能有一个相对定位的父级空间
+                const wrapper = document.createElement('div');
+                wrapper.setAttribute('data-cms-type', 'video');
+                if (targetEl.hasAttribute('data-cms-runtime-id')) wrapper.setAttribute('data-cms-runtime-id', targetEl.getAttribute('data-cms-runtime-id'));
+                wrapper.setAttribute('data-cms-config', JSON.stringify(data.videoData)); // 注入配置留作下次编辑
+                
+                wrapper.className = targetEl.className;
+                if (targetEl.getAttribute('style')) wrapper.setAttribute('style', targetEl.getAttribute('style'));
+                wrapper.style.position = 'relative';
                 let newVideoEl;
                 
                 if (data.videoData.type === 'local') {
@@ -278,59 +386,72 @@
                     if (data.videoData.muted) newVideoEl.muted = true;
                     if (data.videoData.controls) newVideoEl.controls = true;
                     newVideoEl.setAttribute('playsinline', ''); // 增加移动端内联播放支持
+                    newVideoEl.style.width = '100%';
+                    newVideoEl.style.height = '100%';
+                    newVideoEl.style.objectFit = 'cover';
                 } else if (data.videoData.type === 'embed') {
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = data.videoData.iframeCode.trim();
                     newVideoEl = tempDiv.firstElementChild; 
+                    if (newVideoEl) {
+                        newVideoEl.style.width = '100%';
+                        newVideoEl.style.height = '100%';
+                    }
                 }
 
                 if (newVideoEl) {
-                    // 将原图片的 class 和行内 style 都继承给新视频元素，防止排版崩溃
-                    newVideoEl.className = targetImg.className;
-                    if (targetImg.getAttribute('style')) {
-                        newVideoEl.setAttribute('style', targetImg.getAttribute('style'));
-                    }
+                    wrapper.appendChild(newVideoEl);
+                    replaceTarget.parentNode.replaceChild(wrapper, replaceTarget);
                     
-                    // 将 CMS 识别所需的属性继承过去，并把类型变更为视频，方便以后继续被点击编辑
-                    // （你可以根据你的实际逻辑将 data-cms-type 设为 video 或是保留）
-                    newVideoEl.setAttribute('data-cms-type', 'video');
-                    if (targetImg.hasAttribute('data-cms-runtime-id')) {
-                        newVideoEl.setAttribute('data-cms-runtime-id', targetImg.getAttribute('data-cms-runtime-id'));
-                    }
-
-                    // 替换 DOM 元素
-                    targetImg.parentNode.replaceChild(newVideoEl, targetImg);
-                    
-                    // 重新给新元素绑定点击监听事件（触发弹窗）
-                    // bindCmsClickListener(newVideoEl); <-- 请调用你原有文件中负责给新元素绑定点击事件的函数
+                    // 重新挂载悬浮工具栏
+                    initMediaToolbars();
                 }
             }
-        }else if (data.action === 'replace_with_slider') {
-            const targetImg = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement;
+        } else if (data.action === 'replace_with_slider') {
+            const targetEl = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement;
             
-            if (targetImg && targetImg.tagName.toLowerCase() === 'img') {
+            if (targetEl) {
+                // 同样，如果目标元素本身外层有为了显示 toolbar 临时加的 wrapper，把 wrapper 作为替换目标
+                const replaceTarget = targetEl.parentElement && targetEl.parentElement.classList.contains('cms-media-wrapper') ? targetEl.parentElement : targetEl;
+
                 const sd = data.sliderData;
                 
-                // 1. 如果页面中没有引用过 Swiper Elements 库，则自动往 Head 插入外链
-                if (!document.querySelector('script#swiper-element-lib')) {
-                    const swiperScript = document.createElement('script');
-                    swiperScript.id = 'swiper-element-lib';
-                    swiperScript.src = 'https://cdn.jsdelivr.net/npm/swiper@11/swiper-element-bundle.min.js';
-                    document.head.appendChild(swiperScript);
+                // 1. 注入 Swiper CSS 文件外链
+                if (!document.querySelector('link#swiper-css-lib')) {
+                    const swiperCss = document.createElement('link');
+                    swiperCss.id = 'swiper-css-lib';
+                    swiperCss.rel = 'stylesheet';
+                    swiperCss.href = 'https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.css';
+                    document.head.appendChild(swiperCss);
                 }
                 
-                // 2. 创建 Swiper Container (基于 Web Components 标准)
-                const swiperContainer = document.createElement('swiper-container');
+                // 2. 注入 Swiper JS 文件外链
+                if (!document.querySelector('script#swiper-js-lib')) {
+                    const swiperJs = document.createElement('script');
+                    swiperJs.id = 'swiper-js-lib';
+                    swiperJs.src = 'https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js';
+                    document.head.appendChild(swiperJs);
+                }
+                
+                // 3. 创建 Swiper Container (经典 DOM 结构)
+                const swiperId = 'swiper-' + Math.random().toString(36).substr(2, 9);
+                const swiperContainer = document.createElement('div');
+                swiperContainer.className = 'swiper';
+                swiperContainer.id = swiperId;
                 swiperContainer.style.width = sd.width;
                 swiperContainer.style.height = sd.height;
-                if (sd.pagination) swiperContainer.setAttribute('pagination', 'true');
-                swiperContainer.setAttribute('css-mode', 'true');
+                swiperContainer.style.position = 'relative';
                 
                 // 继承 CMS 属性，并使它本身作为 slider 可以被识别
                 swiperContainer.setAttribute('data-cms-type', 'slider');
-                if (targetImg.hasAttribute('data-cms-runtime-id')) {
-                    swiperContainer.setAttribute('data-cms-runtime-id', targetImg.getAttribute('data-cms-runtime-id'));
+                if (targetEl.hasAttribute('data-cms-runtime-id')) {
+                    swiperContainer.setAttribute('data-cms-runtime-id', targetEl.getAttribute('data-cms-runtime-id'));
                 }
+                swiperContainer.setAttribute('data-cms-config', JSON.stringify(sd)); // 注入配置留作下次编辑
+
+                const swiperWrapper = document.createElement('div');
+                swiperWrapper.className = 'swiper-wrapper';
+                swiperContainer.appendChild(swiperWrapper);
 
                 // 排版位置到 Flex 样式的映射
                 const posMap = {
@@ -345,9 +466,10 @@
                     'bottom-right': 'align-items: flex-end; justify-content: flex-end; text-align: right;'
                 };
 
-                // 3. 循环构建每个 Slide
+                // 4. 循环构建每个 Slide
                 sd.slides.forEach(slide => {
-                    const slideEl = document.createElement('swiper-slide');
+                    const slideEl = document.createElement('div');
+                    slideEl.className = 'swiper-slide';
                     slideEl.style.position = 'relative';
                     
                     // 构建背景图和文字层 HTML
@@ -362,11 +484,53 @@
                     ` : '';
                     
                     slideEl.innerHTML = bgHtml + textHtml;
-                    swiperContainer.appendChild(slideEl);
+                    swiperWrapper.appendChild(slideEl);
                 });
 
-                // 4. 替换真实的 DOM 元素
-                targetImg.parentNode.replaceChild(swiperContainer, targetImg);
+                if (sd.pagination) {
+                    const paginationEl = document.createElement('div');
+                    paginationEl.className = 'swiper-pagination';
+                    swiperContainer.appendChild(paginationEl);
+                }
+
+                // 5. 生成初始化 JS 脚本并插入
+                const initScript = document.createElement('script');
+                initScript.textContent = `
+                    (function() {
+                        var init = function() {
+                            new Swiper('#${swiperId}', {
+                                loop: true,
+                                ${sd.pagination ? `pagination: { el: "#${swiperId} .swiper-pagination", clickable: true },` : ''}
+                                autoplay: { delay: 5000, disableOnInteraction: false },
+                            });
+                        };
+                        if (document.readyState === 'loading') {
+                            document.addEventListener('DOMContentLoaded', init);
+                        } else {
+                            if (typeof Swiper !== 'undefined') init();
+                            else document.querySelector('script#swiper-js-lib').addEventListener('load', init);
+                        }
+                    })();
+                `;
+
+                // 6. 替换真实的 DOM 元素，并紧跟着插入初始化脚本
+                replaceTarget.parentNode.insertBefore(swiperContainer, replaceTarget);
+                replaceTarget.parentNode.insertBefore(initScript, replaceTarget);
+                
+                // 清理可能存在的旧版本初始化脚本，防止多重初始化冲突
+                if (replaceTarget.getAttribute('data-cms-type') === 'slider' || targetEl.getAttribute('data-cms-type') === 'slider') {
+                    let next = replaceTarget.nextElementSibling;
+                    while (next) {
+                        if (next.tagName.toLowerCase() === 'script' && next.textContent.includes('new Swiper')) {
+                            next.remove();
+                            break;
+                        }
+                        next = next.nextElementSibling;
+                    }
+                }
+                
+                replaceTarget.remove();
+                setTimeout(initMediaToolbars, 50); // 延时重载工具栏
             }
         }
     });
