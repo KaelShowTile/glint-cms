@@ -7,6 +7,61 @@
     if (window.__cmsEditorInitialized) return;
     window.__cmsEditorInitialized = true;
 
+    // 辅助函数：尝试智能提取多媒体配置（适配原生未经过 CMS 保存过的占位符元素）
+    function getMediaConfig(target, type) {
+        let config = null;
+        const configStr = target.getAttribute('data-cms-config');
+        if (configStr) {
+            try { config = JSON.parse(configStr); } catch(e) { console.error(e); }
+        }
+        
+        // 如果没有读取到已存的配置，则通过读取现有 DOM 节点动态反推生成配置信息
+        if (!config) {
+            if (type === 'video') {
+                const tagName = target.tagName.toLowerCase();
+                if (tagName === 'iframe') {
+                    config = { type: 'embed', src: '', iframeCode: target.outerHTML, autoplay: false, loop: false, muted: false, controls: true };
+                } else if (tagName === 'video') {
+                    config = { type: 'local', src: target.getAttribute('src') || '', iframeCode: '', autoplay: target.autoplay, loop: target.loop, muted: target.muted, controls: target.controls };
+                } else {
+                    const iframe = target.querySelector('iframe');
+                    if (iframe) {
+                        config = { type: 'embed', src: '', iframeCode: iframe.outerHTML, autoplay: false, loop: false, muted: false, controls: true };
+                    } else {
+                        const vid = target.querySelector('video');
+                        if (vid) config = { type: 'local', src: vid.getAttribute('src') || '', iframeCode: '', autoplay: vid.autoplay, loop: vid.loop, muted: vid.muted, controls: vid.controls };
+                    }
+                }
+                // 后备安全默认值
+                if (!config) config = { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false };
+            } else if (type === 'slider') {
+                let slides = [];
+                const slideEls = target.querySelectorAll('.swiper-slide');
+                if (slideEls.length > 0) {
+                    slideEls.forEach((slide, idx) => {
+                        const img = slide.querySelector('img');
+                        const h2 = slide.querySelector('h2');
+                        const p = slide.querySelector('p');
+                        slides.push({
+                            id: Date.now() + idx,
+                            src: img ? img.getAttribute('src') : '',
+                            title: h2 ? h2.innerText : '',
+                            description: p ? p.innerText : '',
+                            textPosition: 'center-center'
+                        });
+                    });
+                }
+                config = {
+                    width: target.style.width || '100%',
+                    height: target.style.height || '400px',
+                    pagination: !!target.querySelector('.swiper-pagination'),
+                    slides: slides
+                };
+            }
+        }
+        return config;
+    }
+
     // 1. 注入编辑器专属的 CSS，用于高亮显示可编辑区域
     const style = document.createElement('style');
     style.id = 'cms-editor-style';
@@ -143,11 +198,12 @@
                 if (!el.hasAttribute('data-cms-runtime-id')) {
                     el.setAttribute('data-cms-runtime-id', 'cms-id-' + Math.random().toString(36).substr(2, 9));
                 }
-                const configStr = el.getAttribute('data-cms-config');
+                const config = getMediaConfig(el, type);
                 window.parent.postMessage({
                     action: type === 'slider' ? 'edit_slider' : 'edit_video',
                     runtimeId: el.getAttribute('data-cms-runtime-id'),
-                    config: configStr ? JSON.parse(configStr) : null
+                    config: config,
+                    src: el.tagName.toLowerCase() === 'img' ? el.getAttribute('src') : ''
                 }, '*');
             };
 
@@ -256,20 +312,20 @@
                 alt: target.getAttribute('alt') || ''
             }, '*');
         }else if (type === 'video') {
-            const configStr = target.getAttribute('data-cms-config');
+            const config = getMediaConfig(target, 'video');
             window.parent.postMessage({
                 action: 'edit_video',
                 runtimeId: runtimeId,
-                config: configStr ? JSON.parse(configStr) : null
+                config: config
             }, '*');
         }
         // 处理slider
         else if (type === 'slider') {
-            const configStr = target.getAttribute('data-cms-config');
+            const config = getMediaConfig(target, 'slider');
             window.parent.postMessage({
                 action: 'edit_slider',
                 runtimeId: runtimeId,
-                config: configStr ? JSON.parse(configStr) : null,
+                config: config,
                 src: tagName === 'img' ? target.getAttribute('src') : ''
             }, '*');
         }
@@ -330,17 +386,6 @@
                     schemaEl.remove();
                 }
             }
-
-            // 清理保存时为了自闭合标签而注入的临时包裹层 (wrapper)，使其恢复原样
-            docClone.querySelectorAll('.cms-media-wrapper').forEach(wrapper => {
-                wrapper.querySelectorAll('.cms-floating-toolbar').forEach(t => t.remove());
-                const child = wrapper.firstElementChild;
-                if (child) {
-                    wrapper.parentNode.replaceChild(child, wrapper);
-                } else {
-                    wrapper.remove();
-                }
-            });
 
             // 深度克隆整个文档 DOM，防止清理操作破坏当前用户正在编辑的界面
             const docClone = document.documentElement.cloneNode(true);
