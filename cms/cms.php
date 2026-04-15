@@ -86,6 +86,37 @@ endif;
 if (isset($_GET['api'])) {
     header('Content-Type: application/json');
     
+    // 提取出一个公共的 Sitemap 更新函数，用于页面增删时触发
+    function update_sitemap($pdo) {
+        $basePath = __DIR__ . '/../';
+        $sitemapFile = $basePath . 'Sitemap.xml';
+        
+        // 获取站点域名配置，如果为空则给出默认占位符
+        $stmt = $pdo->query("SELECT key_value FROM settings WHERE key_name = 'site_domain'");
+        $domainRow = $stmt->fetch();
+        $domain = $domainRow && !empty($domainRow['key_value']) ? rtrim($domainRow['key_value'], '/') : 'https://www.yoursite.com';
+        
+        $pagesStmt = $pdo->query("SELECT filename FROM pages ORDER BY type ASC, filename ASC");
+        $pages = $pagesStmt->fetchAll();
+        
+        $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        $xml .= "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+        foreach ($pages as $p) {
+            $url = $domain . '/' . ltrim($p['filename'], '/');
+            // 如果是以 index.html 结尾的目录引导页，优化 URL 为单纯的斜杠
+            if (substr($url, -10) === 'index.html') { $url = substr($url, 0, -10); }
+            
+            $xml .= "    <url>\n";
+            $xml .= "        <loc>" . htmlspecialchars($url) . "</loc>\n";
+            $xml .= "        <lastmod>" . date('Y-m-d') . "</lastmod>\n";
+            $xml .= "        <changefreq>weekly</changefreq>\n";
+            $xml .= "        <priority>0.8</priority>\n";
+            $xml .= "    </url>\n";
+        }
+        $xml .= "</urlset>";
+        file_put_contents($sitemapFile, $xml);
+    }
+
     // 获取分类的页面列表
     if ($_GET['api'] === 'get_pages') {
         $stmt = $pdo->query("SELECT * FROM pages ORDER BY type ASC, filename ASC");
@@ -139,6 +170,9 @@ if (isset($_GET['api'])) {
                         ':type' => 'template_instance',
                         ':parent_id' => $page['parent_template_id'] ?? $page['id']
                     ]);
+                    
+                    update_sitemap($pdo); // 触发 Sitemap 更新
+                    
                     echo json_encode(['status' => 'success', 'message' => 'copied']);
                     exit;
                 }
@@ -150,6 +184,29 @@ if (isset($_GET['api'])) {
         exit;
     }
     
+    // 删除页面 API
+    if ($_GET['api'] === 'delete_page' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $id = $_POST['id'] ?? 0;
+        // 为了安全起见，只允许后台删除动态生成的 template_instance (阻止误删静态核心页)
+        $stmt = $pdo->prepare("SELECT * FROM pages WHERE id = :id AND type = 'template_instance'");
+        $stmt->execute([':id' => $id]);
+        $page = $stmt->fetch();
+        
+        if ($page) {
+            $filePath = __DIR__ . '/../' . $page['filename'];
+            if (file_exists($filePath)) @unlink($filePath); // 从硬盘永久删除 HTML
+            $pdo->prepare("DELETE FROM pages WHERE id = :id")->execute([':id' => $id]);
+            $pdo->prepare("DELETE FROM backups WHERE page_id = :id")->execute([':id' => $id]); // 清除关联备份
+            
+            update_sitemap($pdo); // 触发 Sitemap 更新
+            
+            echo json_encode(['status' => 'success', 'message' => 'deleted']);
+            exit;
+        }
+        echo json_encode(['status' => 'error', 'message' => '找不到页面数据，或该核心页面禁止删除']);
+        exit;
+    }
+
     // 保存静态网页文件并备份的 API
     if ($_GET['api'] === 'save_page' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = $_POST['id'] ?? 0;
@@ -262,10 +319,11 @@ if (isset($_GET['api'])) {
             'body_scripts' => ''
         ];
 
-        $stmt = $pdo->query("SELECT key_name, key_value FROM settings WHERE key_name IN ('global_head_scripts', 'global_body_scripts')");
+        $stmt = $pdo->query("SELECT key_name, key_value FROM settings WHERE key_name IN ('global_head_scripts', 'global_body_scripts', 'site_domain')");
         while ($row = $stmt->fetch()) {
             if ($row['key_name'] === 'global_head_scripts') $files['head_scripts'] = $row['key_value'];
             if ($row['key_name'] === 'global_body_scripts') $files['body_scripts'] = $row['key_value'];
+            if ($row['key_name'] === 'site_domain') $files['site_domain'] = $row['key_value'];
         }
         
         echo json_encode(['status' => 'success', 'data' => $files]);
@@ -280,6 +338,10 @@ if (isset($_GET['api'])) {
         file_put_contents($basePath . 'llm.txt', $_POST['llm'] ?? '');
         file_put_contents($basePath . '.htaccess', $_POST['htaccess'] ?? '');
         
+        $domain = $_POST['site_domain'] ?? '';
+        $stmt = $pdo->prepare("INSERT OR REPLACE INTO settings (key_name, key_value) VALUES ('site_domain', :v)");
+        $stmt->execute([':v' => $domain]);
+
         echo json_encode(['status' => 'success', 'message' => '全局 SEO 设置保存成功']);
         exit;
     }
@@ -506,7 +568,10 @@ if (isset($_GET['api'])) {
                                 <td class="px-4 py-3 text-sm text-right font-medium space-x-2">
                                     <button @click="openEditor(page)" class="text-blue-600 hover:text-blue-900">Edit</button>
                                     <template x-if="page.type === 'template_instance'">
-                                        <button @click="duplicatePage(page)" class="text-green-600 hover:text-green-900">Copy</button>
+                                        <div class="inline-block space-x-2">
+                                            <button @click="duplicatePage(page)" class="text-green-600 hover:text-green-900">Copy</button>
+                                            <button @click="deletePage(page)" class="text-red-600 hover:text-red-900">Delete</button>
+                                        </div>
                                     </template>
                                 </td>
                             </tr>
@@ -645,7 +710,11 @@ if (isset($_GET['api'])) {
                 </div>
                 <div class="flex-1 overflow-y-auto space-y-5 pr-2">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Sitemap.xml</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">主域名 (Site Domain) <span class="text-xs text-gray-500 font-normal">(用于生成绝对路径 Sitemap)</span></label>
+                        <input type="text" x-model="globalSeoFiles.site_domain" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary" placeholder="例如: https://www.example.com">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Sitemap.xml <span class="text-xs text-gray-500 font-normal">(系统会在添加/删除页面时自动更新此文件)</span></label>
                         <textarea x-model="globalSeoFiles.sitemap" rows="8" class="w-full font-mono text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary placeholder-gray-400" placeholder="<?xml version='1.0' encoding='UTF-8'?>..."></textarea>
                     </div>
                     <div>
@@ -974,7 +1043,7 @@ if (isset($_GET['api'])) {
                 originalFileName: '',
                 cropperInstance: null,
                 
-                globalSeoFiles: { sitemap: '', robots: '', llm: '', htaccess: '', head_scripts: '', body_scripts: '' },
+                globalSeoFiles: { site_domain: '', sitemap: '', robots: '', llm: '', htaccess: '', head_scripts: '', body_scripts: '' },
                 
                 aiSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '' },
                 
@@ -1124,6 +1193,7 @@ if (isset($_GET['api'])) {
             async saveGlobalSeo() {
                 try {
                     let formData = new FormData();
+                        formData.append('site_domain', this.globalSeoFiles.site_domain);
                     formData.append('sitemap', this.globalSeoFiles.sitemap);
                     formData.append('robots', this.globalSeoFiles.robots);
                     formData.append('llm', this.globalSeoFiles.llm);
@@ -1442,6 +1512,25 @@ if (isset($_GET['api'])) {
                                 this.fetchPages(); // 复制成功后刷新左侧和表格里的列表
                             } else {
                                 alert('复制失败: ' + json.message);
+                            }
+                        } catch (e) {
+                            alert('网络请求出错');
+                        }
+                    }
+                },
+                
+                // 删除页面
+                async deletePage(page) {
+                    if(confirm(`警告：确定要彻底删除页面 [${page.filename}] 吗？此操作不可恢复，且会从硬盘上永久删除该 HTML 文件及其备份！`)) {
+                        try {
+                            let formData = new FormData();
+                            formData.append('id', page.id);
+                            const res = await fetch('cms.php?api=delete_page', { method: 'POST', body: formData });
+                            const json = await res.json();
+                            if (json.status === 'success') {
+                                this.fetchPages(); // 删除成功后刷新页面列表
+                            } else {
+                                alert('删除失败: ' + json.message);
                             }
                         } catch (e) {
                             alert('网络请求出错');
