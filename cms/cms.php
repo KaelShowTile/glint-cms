@@ -362,6 +362,36 @@ if (isset($_GET['api'])) {
         foreach ($_POST as $key => $value) {
             $stmt->execute([':k' => $key, ':v' => $value]);
         }
+        
+        // 处理 IP Whitelist 的 .htaccess 注入
+        $enableWhitelist = $_POST['enable_ip_whitelist'] ?? 'false';
+        $whitelistIps = trim($_POST['whitelist_ips'] ?? '');
+        
+        $basePath = __DIR__ . '/../';
+        $htaccessPath = $basePath . '.htaccess';
+        $htaccessContent = file_exists($htaccessPath) ? file_get_contents($htaccessPath) : '';
+        
+        // 移除旧的规则块
+        $htaccessContent = preg_replace('/# BEGIN CMS IP WHITELIST.*?# END CMS IP WHITELIST\n?/s', '', $htaccessContent);
+        
+        if ($enableWhitelist === 'true' && !empty($whitelistIps)) {
+            $ips = array_filter(array_map('trim', explode("\n", $whitelistIps)));
+            if (count($ips) > 0) {
+                $rule = "# BEGIN CMS IP WHITELIST\n";
+                $rule .= "<IfModule mod_rewrite.c>\n";
+                $rule .= "RewriteEngine On\n";
+                foreach ($ips as $ip) {
+                    $rule .= "RewriteCond %{REMOTE_ADDR} !=" . $ip . "\n";
+                }
+                $rule .= "RewriteRule ^cms/ - [F,L]\n"; // 仅拦截对 cms 文件夹的访问
+                $rule .= "</IfModule>\n";
+                $rule .= "# END CMS IP WHITELIST\n";
+                
+                $htaccessContent = $rule . ltrim($htaccessContent);
+            }
+        }
+        file_put_contents($htaccessPath, trim($htaccessContent) . "\n");
+
         echo json_encode(['status' => 'success', 'message' => '设置已保存']);
         exit;
     }
@@ -512,12 +542,12 @@ if (isset($_GET['api'])) {
                     Global SEO
                 </button>
                 
-                <!-- AI 设置 Tab -->
-                <button @click="switchTab('ai_settings')" 
-                        :class="{'bg-blue-50 text-primary': currentTab === 'ai_settings', 'hover:bg-gray-100': currentTab !== 'ai_settings'}"
+                <!-- 系统设置 Tab -->
+                <button @click="switchTab('sys_settings')" 
+                        :class="{'bg-blue-50 text-primary': currentTab === 'sys_settings', 'hover:bg-gray-100': currentTab !== 'sys_settings'}"
                         class="w-full text-left px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition mt-1 border-t pt-3">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                    AI Settings
+                    Settings
                 </button>
             </nav>
         </div>
@@ -551,7 +581,7 @@ if (isset($_GET['api'])) {
         <div class="flex-1 overflow-y-auto p-6" id="main-content">
             
             <!-- 页面列表视图 -->
-            <div x-show="!editingPage && currentTab !== 'media' && currentTab !== 'global_seo' && currentTab !== 'ai_settings'" class="bg-white rounded-lg shadow-sm border p-4">
+            <div x-show="!editingPage && currentTab !== 'media' && currentTab !== 'global_seo' && currentTab !== 'sys_settings'" class="bg-white rounded-lg shadow-sm border p-4">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead>
                         <tr>
@@ -743,18 +773,19 @@ if (isset($_GET['api'])) {
                 </div>
             </div>
 
-            <!-- AI 设置视图 -->
-            <div x-show="currentTab === 'ai_settings'" class="bg-white rounded-lg shadow-sm border p-6 max-w-2xl" style="display: none;">
+            <!-- 系统设置视图 -->
+            <div x-show="currentTab === 'sys_settings'" class="bg-white rounded-lg shadow-sm border p-6 max-w-2xl" style="display: none;">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-lg font-medium">AI API 设置</h3>
-                    <button @click="saveAiSettings()" class="px-4 py-2 bg-primary text-white rounded font-medium shadow-sm hover:bg-blue-700 transition text-sm">
-                        Save AI Settings
+                    <h3 class="text-lg font-medium">系统与 AI 设置 (Settings)</h3>
+                    <button @click="saveSysSettings()" class="px-4 py-2 bg-primary text-white rounded font-medium shadow-sm hover:bg-blue-700 transition text-sm">
+                        Save Settings
                     </button>
                 </div>
                 <div class="space-y-5">
+                    <h4 class="font-semibold text-gray-700 border-b pb-2">AI API 设置</h4>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">API 端口类型</label>
-                        <select x-model="aiSettings.ai_provider" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary">
+                        <select x-model="sysSettings.ai_provider" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary">
                             <option value="openai">OpenAI</option>
                             <option value="groq">Groq (推荐, 极速)</option>
                             <option value="gemini">Google Gemini</option>
@@ -762,12 +793,27 @@ if (isset($_GET['api'])) {
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">API Key (密钥)</label>
-                        <input type="password" x-model="aiSettings.ai_api_key" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary" placeholder="sk-...">
+                        <input type="password" x-model="sysSettings.ai_api_key" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary" placeholder="sk-...">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">模型名称 <span class="text-xs text-gray-500 font-normal">(选填，留空则使用默认模型)</span></label>
-                        <input type="text" x-model="aiSettings.ai_model" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary" placeholder="例如: gpt-4o 或 llama3-8b-8192">
+                        <input type="text" x-model="sysSettings.ai_model" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary" placeholder="例如: gpt-4o 或 llama3-8b-8192">
                         <p class="text-xs text-gray-500 mt-1">此配置将用于全站范围内的 AI 生成能力（如 SEO Schema 自动生成）。</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-5 mt-8">
+                    <h4 class="font-semibold text-gray-700 border-b pb-2">后台安全访问 (IP Whitelist)</h4>
+                    <label class="flex items-center text-sm text-gray-700 font-medium cursor-pointer">
+                        <input type="checkbox" x-model="sysSettings.enable_ip_whitelist" class="mr-2 rounded text-primary w-4 h-4"> 
+                        仅允许 Whitelist IP 访问后台 (启用后将自动写入根目录 .htaccess)
+                    </label>
+                    <div x-show="sysSettings.enable_ip_whitelist" class="pl-6 space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">允许的 IP 地址列表 (每行一个)</label>
+                            <textarea x-model="sysSettings.whitelist_ips" rows="4" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary font-mono" placeholder="192.168.1.1\n10.0.0.1"></textarea>
+                            <p class="text-xs text-gray-500 mt-1">您当前的公网 IP 地址是: <span class="font-bold text-primary"><?= htmlspecialchars($_SERVER['REMOTE_ADDR'] ?? '未知') ?></span>。请务必将其包含在内，以免被系统锁定！</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1045,7 +1091,7 @@ if (isset($_GET['api'])) {
                 
                 globalSeoFiles: { site_domain: '', sitemap: '', robots: '', llm: '', htaccess: '', head_scripts: '', body_scripts: '' },
                 
-                aiSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '' },
+                sysSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '', enable_ip_whitelist: false, whitelist_ips: '' },
                 
                 isGenerating: false, // 控制按钮 loading 状态
 
@@ -1053,7 +1099,7 @@ if (isset($_GET['api'])) {
                     this.fetchPages();
                     this.fetchMedia();
                     this.fetchGlobalSeo();
-                    this.fetchAiSettings();
+                    this.fetchSysSettings();
                 },
 
                 // 从后端 API 获取页面结构
@@ -1210,38 +1256,42 @@ if (isset($_GET['api'])) {
                 }
             },
 
-                 // 获取 AI 设置
-                async fetchAiSettings() {
+                 // 获取系统设置
+                async fetchSysSettings() {
                     try {
                         const res = await fetch('cms.php?api=get_settings');
                         const json = await res.json();
-                    if (json.status === 'success' && typeof json.data === 'object' && json.data !== null) {
-                        this.aiSettings.ai_provider = json.data.ai_provider || 'openai';
-                            this.aiSettings.ai_api_key = json.data.ai_api_key || '';
-                            this.aiSettings.ai_model = json.data.ai_model || '';
+                        if (json.status === 'success' && typeof json.data === 'object' && json.data !== null) {
+                            this.sysSettings.ai_provider = json.data.ai_provider || 'openai';
+                            this.sysSettings.ai_api_key = json.data.ai_api_key || '';
+                            this.sysSettings.ai_model = json.data.ai_model || '';
+                            this.sysSettings.enable_ip_whitelist = json.data.enable_ip_whitelist === 'true';
+                            this.sysSettings.whitelist_ips = json.data.whitelist_ips || '';
                         }
-                    } catch (error) { console.error("加载AI设置失败", error); }
+                    } catch (error) { console.error("加载系统设置失败", error); }
                 },
                 
-                // 保存 AI 设置
-                async saveAiSettings() {
+                // 保存系统设置
+                async saveSysSettings() {
                     try {
                         let formData = new FormData();
-                        formData.append('ai_provider', this.aiSettings.ai_provider);
-                        formData.append('ai_api_key', this.aiSettings.ai_api_key);
-                        formData.append('ai_model', this.aiSettings.ai_model);
+                        formData.append('ai_provider', this.sysSettings.ai_provider);
+                        formData.append('ai_api_key', this.sysSettings.ai_api_key);
+                        formData.append('ai_model', this.sysSettings.ai_model);
+                        formData.append('enable_ip_whitelist', this.sysSettings.enable_ip_whitelist ? 'true' : 'false');
+                        formData.append('whitelist_ips', this.sysSettings.whitelist_ips);
 
                         const res = await fetch('cms.php?api=save_settings', { method: 'POST', body: formData });
                         const json = await res.json();
-                        if (json.status === 'success') alert('AI API 设置已成功保存！');
+                        if (json.status === 'success') alert('系统设置已成功保存！');
                         else alert('保存失败: ' + (json.message || '未知错误'));
                     } catch (e) { alert('网络请求出错'); }
                 },
                 
                 // 使用 AI 生成 Schema
                 async generateSchemaWithAI() {
-                    if (!this.aiSettings.ai_api_key) {
-                        alert("请先在左侧菜单栏的 [AI Settings] 中配置您的 API Key！");
+                    if (!this.sysSettings.ai_api_key) {
+                        alert("请先在左侧菜单栏的 [Settings] 中配置您的 API Key！");
                         return;
                     }
                     
@@ -1254,9 +1304,9 @@ if (isset($_GET['api'])) {
                     try {
                         let formData = new FormData();
                         formData.append('html', htmlContent);
-                        formData.append('ai_provider', this.aiSettings.ai_provider);
-                        formData.append('ai_api_key', this.aiSettings.ai_api_key);
-                        formData.append('ai_model', this.aiSettings.ai_model);
+                        formData.append('ai_provider', this.sysSettings.ai_provider);
+                        formData.append('ai_api_key', this.sysSettings.ai_api_key);
+                        formData.append('ai_model', this.sysSettings.ai_model);
                         
                         const res = await fetch('cms.php?api=generate_schema', { method: 'POST', body: formData });
                         const json = await res.json();
@@ -1274,7 +1324,7 @@ if (isset($_GET['api'])) {
                     if (this.editingPage) return '可视化编辑';
                     if (this.currentTab === 'media') return '媒体管理';
                     if (this.currentTab === 'global_seo') return 'Global SEO 配置';
-                    if (this.currentTab === 'ai_settings') return 'AI API 配置';
+                    if (this.currentTab === 'sys_settings') return '系统与 AI 配置';
                     if (this.currentTab === 'static') return '常规页面管理';
                     return this.currentTab.replace('template_', '') + ' 模板管理';
                 },
