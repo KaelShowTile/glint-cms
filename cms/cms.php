@@ -771,6 +771,41 @@ if (isset($_GET['api'])) {
                         <textarea x-model="globalSeoFiles.body_scripts" rows="6" class="w-full font-mono text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary placeholder-gray-400" placeholder="<!-- 将自动注入全站的 <body> 下方 -->"></textarea>
                     </div>
                 </div>
+                
+                <div class="space-y-5 mt-8 border-t pt-8">
+                    <h4 class="font-semibold text-gray-700 border-b pb-2">接收表单与邮件设置 (Contact Form / SMTP)</h4>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">接收网站表单的 Admin 邮箱 <span class="text-red-500">*</span></label>
+                        <input type="email" x-model="sysSettings.admin_email" class="w-full text-sm border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary" placeholder="admin@domain.com">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">SMTP Host (服务器)</label>
+                            <input type="text" x-model="sysSettings.smtp_host" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary" placeholder="smtp.gmail.com">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">SMTP Port (端口)</label>
+                            <input type="text" x-model="sysSettings.smtp_port" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary" placeholder="587 或 465">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">SMTP Username (账号)</label>
+                            <input type="text" x-model="sysSettings.smtp_user" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary" placeholder="your-email@domain.com">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">SMTP Password (密码)</label>
+                            <input type="password" x-model="sysSettings.smtp_pass" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary" placeholder="******">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">安全加密 (Encryption)</label>
+                            <select x-model="sysSettings.smtp_secure" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary">
+                                <option value="tls">TLS (推荐, 搭配端口 587)</option>
+                                <option value="ssl">SSL (搭配端口 465)</option>
+                                <option value="none">无加密 (None)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">注：若表单选择 PHP 原生 `mail()` 发送，则无需配置上方 SMTP 参数。</p>
+                </div>
             </div>
 
             <!-- 系统设置视图 -->
@@ -1013,6 +1048,72 @@ if (isset($_GET['api'])) {
             </div>
         </div>
 
+        <!-- Contact Form 弹窗 -->
+        <div x-show="formModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+            <div class="bg-white rounded-lg shadow-xl w-[36rem] max-h-[90vh] flex flex-col overflow-hidden" @click.away="formModalOpen = false">
+                <div class="bg-gray-50 px-4 py-3 border-b font-medium">编辑联系表单 (Contact Form)</div>
+                <div class="p-4 overflow-y-auto flex-1 space-y-5 bg-gray-50">
+                    <div class="bg-white p-3 rounded border shadow-sm space-y-3">
+                        <h4 class="text-xs font-semibold text-gray-500 uppercase">发送设置</h4>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">邮件发送模式</label>
+                            <select x-model="formData.mailMethod" class="w-full text-sm border-gray-300 border rounded px-2 py-1.5 focus:ring-primary focus:border-primary">
+                                <option value="php">PHP 原生 mail() 函数 (需服务器支持)</option>
+                                <option value="smtp">SMTP 发送 (推荐, 需在Settings中配置参数)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-xs font-semibold text-gray-500 uppercase">表单字段设置 (Repeater)</h4>
+                            <button @click="addFormField()" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-200 hover:bg-blue-100">+ 添加字段</button>
+                        </div>
+                        <template x-for="(field, index) in formData.fields" :key="field.id">
+                            <div class="bg-white p-3 rounded border shadow-sm flex items-center gap-3">
+                                <div class="flex-1">
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">字段标题 (Label & Name)</label>
+                                    <input type="text" x-model="field.label" class="w-full text-sm border-gray-300 border rounded px-2 py-1 focus:ring-primary" :readonly="index < 4" :class="{'bg-gray-100 text-gray-500 cursor-not-allowed': index < 4}">
+                                </div>
+                                <div class="w-40">
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">类型 (Type)</label>
+                                    <select x-model="field.type" class="w-full text-sm border-gray-300 border rounded px-2 py-1 focus:ring-primary" :disabled="index < 4" :class="{'bg-gray-100 text-gray-500 cursor-not-allowed': index < 4}">
+                                        <option value="text">单行文本 (text)</option>
+                                        <option value="email">邮箱 (email)</option>
+                                        <option value="textarea">多行文本 (textarea)</option>
+                                    </select>
+                                </div>
+                                <div class="w-16 pt-5 text-right">
+                                    <button x-show="index >= 4" @click="removeFormField(index)" class="text-red-400 hover:text-red-600 text-xs px-2 py-1 bg-red-50 rounded border border-red-100">删除</button>
+                                    <span x-show="index < 4" class="text-xs text-gray-400 font-medium">系统必选</span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="bg-white px-4 py-3 border-t flex justify-end space-x-2">
+                    <button @click="formModalOpen = false" class="px-4 py-2 bg-white border rounded text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>
+                    <button @click="saveFormConversion()" class="px-4 py-2 bg-primary text-white rounded text-sm font-medium hover:bg-blue-700">生成并替换表单</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 地图 Embed 弹窗 -->
+        <div x-show="mapModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
+            <div class="bg-white rounded-lg shadow-xl w-96 overflow-hidden" @click.away="mapModalOpen = false">
+                <div class="bg-gray-50 px-4 py-3 border-b font-medium">编辑地图 (Google Maps)</div>
+                <div class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">地图 Embed 代码 (Iframe)</label>
+                        <textarea x-model="mapData.iframeCode" rows="6" class="w-full border-gray-300 border rounded-md shadow-sm py-2 px-3 focus:ring-primary focus:border-primary sm:text-sm" placeholder="<iframe src='https://www.google.com/maps/embed?...' width='100%' height='450' style='border:0;' allowfullscreen='' loading='lazy'></iframe>"></textarea>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 border-t flex justify-end space-x-2">
+                    <button @click="mapModalOpen = false" class="px-4 py-2 bg-white border rounded text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>
+                    <button @click="saveMapConversion()" class="px-4 py-2 bg-primary text-white rounded text-sm font-medium hover:bg-blue-700">确认替换</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 历史备份弹窗 -->
         <div x-show="historyModalOpen" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display: none;">
             <div class="bg-white rounded-lg shadow-xl w-96 overflow-hidden" @click.away="historyModalOpen = false">
@@ -1072,9 +1173,13 @@ if (isset($_GET['api'])) {
                 mediaModalOpen: false,
                 videoModalOpen: false,
                 sliderModalOpen: false,
+                mapModalOpen: false,
+                formModalOpen: false,
                 editingData: {}, // 临时存储由 iframe 传来的待编辑数据
                 videoData: { type: 'local', src: '', iframeCode: '', autoplay: true, loop: true, muted: true, controls: false },
                 sliderData: { width: '100%', height: '400px', pagination: true, slides: [] },
+                mapData: { iframeCode: '' },
+                formData: { mailMethod: 'php', fields: [] },
                 
                 showSeoPanel: false,
                 seoData: { 
@@ -1091,7 +1196,7 @@ if (isset($_GET['api'])) {
                 
                 globalSeoFiles: { site_domain: '', sitemap: '', robots: '', llm: '', htaccess: '', head_scripts: '', body_scripts: '' },
                 
-                sysSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '', enable_ip_whitelist: false, whitelist_ips: '' },
+                sysSettings: { ai_provider: 'openai', ai_api_key: '', ai_model: '', enable_ip_whitelist: false, whitelist_ips: '', admin_email: '', smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_secure: 'tls' },
                 
                 isGenerating: false, // 控制按钮 loading 状态
 
@@ -1267,6 +1372,12 @@ if (isset($_GET['api'])) {
                             this.sysSettings.ai_model = json.data.ai_model || '';
                             this.sysSettings.enable_ip_whitelist = json.data.enable_ip_whitelist === 'true';
                             this.sysSettings.whitelist_ips = json.data.whitelist_ips || '';
+                            this.sysSettings.admin_email = json.data.admin_email || '';
+                            this.sysSettings.smtp_host = json.data.smtp_host || '';
+                            this.sysSettings.smtp_port = json.data.smtp_port || '587';
+                            this.sysSettings.smtp_user = json.data.smtp_user || '';
+                            this.sysSettings.smtp_pass = json.data.smtp_pass || '';
+                            this.sysSettings.smtp_secure = json.data.smtp_secure || 'tls';
                         }
                     } catch (error) { console.error("加载系统设置失败", error); }
                 },
@@ -1280,6 +1391,12 @@ if (isset($_GET['api'])) {
                         formData.append('ai_model', this.sysSettings.ai_model);
                         formData.append('enable_ip_whitelist', this.sysSettings.enable_ip_whitelist ? 'true' : 'false');
                         formData.append('whitelist_ips', this.sysSettings.whitelist_ips);
+                        formData.append('admin_email', this.sysSettings.admin_email);
+                        formData.append('smtp_host', this.sysSettings.smtp_host);
+                        formData.append('smtp_port', this.sysSettings.smtp_port);
+                        formData.append('smtp_user', this.sysSettings.smtp_user);
+                        formData.append('smtp_pass', this.sysSettings.smtp_pass);
+                        formData.append('smtp_secure', this.sysSettings.smtp_secure);
 
                         const res = await fetch('cms.php?api=save_settings', { method: 'POST', body: formData });
                         const json = await res.json();
@@ -1424,6 +1541,23 @@ if (isset($_GET['api'])) {
                         }
                         this.sliderData = config;
                         this.sliderModalOpen = true;
+                    } else if (data.action === 'edit_map') {
+                        this.editingData = { runtimeId: data.runtimeId, tagName: 'map' };
+                        this.mapData = data.config || { iframeCode: '' };
+                        this.mapModalOpen = true;
+                    } else if (data.action === 'edit_form') {
+                        this.editingData = { runtimeId: data.runtimeId, tagName: 'form' };
+                        let config = data.config || { mailMethod: 'php', fields: [] };
+                        if (!config.fields || config.fields.length === 0) {
+                            config.fields = [
+                                { id: Date.now(), label: '姓名', type: 'text', required: true },
+                                { id: Date.now()+1, label: '邮箱', type: 'email', required: true },
+                                { id: Date.now()+2, label: '主题', type: 'text', required: true },
+                                { id: Date.now()+3, label: '详细留言内容', type: 'textarea', required: true }
+                            ];
+                        }
+                        this.formData = config;
+                        this.formModalOpen = true;
                     } else if (data.action === 'save_html') {
                         this.saveHtmlToServer(data.html);
                     } else if (data.action === 'load_seo') {
@@ -1548,6 +1682,35 @@ if (isset($_GET['api'])) {
                         sliderData: JSON.parse(JSON.stringify(this.sliderData))
                     }, '*');
                     this.sliderModalOpen = false;
+                },
+                
+                saveMapConversion() {
+                    if (!this.mapData.iframeCode) { alert('请输入地图代码'); return; }
+                    const iframe = document.getElementById('visual-editor');
+                    iframe.contentWindow.postMessage({
+                        action: 'replace_with_map',
+                        runtimeId: this.editingData.runtimeId,
+                        mapData: JSON.parse(JSON.stringify(this.mapData))
+                    }, '*');
+                    this.mapModalOpen = false;
+                },
+
+                addFormField() {
+                    this.formData.fields.push({ id: Date.now(), label: '自定义附加选项', type: 'text', required: false });
+                },
+                
+                removeFormField(index) {
+                    if (index >= 4) { this.formData.fields.splice(index, 1); }
+                },
+                
+                saveFormConversion() {
+                    const iframe = document.getElementById('visual-editor');
+                    iframe.contentWindow.postMessage({
+                        action: 'replace_with_form',
+                        runtimeId: this.editingData.runtimeId,
+                        formData: JSON.parse(JSON.stringify(this.formData))
+                    }, '*');
+                    this.formModalOpen = false;
                 },
 
                 // 复制模板页面

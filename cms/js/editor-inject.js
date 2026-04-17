@@ -57,6 +57,11 @@
                     pagination: !!target.querySelector('.swiper-pagination'),
                     slides: slides
                 };
+            } else if (type === 'map') {
+                const iframe = target.querySelector('iframe');
+                config = { iframeCode: iframe ? iframe.outerHTML : target.innerHTML.trim() };
+            } else if (type === 'form') {
+                // 留空，由 fallback 推断空列表交给前端去默认补齐
             }
         }
         return config;
@@ -161,7 +166,7 @@
 
     // 初始化多媒体元素(轮播/视频)的常驻悬浮工具栏
     function initMediaToolbars() {
-        document.querySelectorAll('[data-cms-type="slider"], [data-cms-type="video"]').forEach(el => {
+        document.querySelectorAll('[data-cms-type="slider"], [data-cms-type="video"], [data-cms-type="map"], [data-cms-type="form"]').forEach(el => {
             // 检查父元素是否已经是 wrapper，避免重复包装
             if (el.parentElement && el.parentElement.classList.contains('cms-media-wrapper')) return;
             
@@ -182,7 +187,7 @@
             toolbar.style.backgroundColor = '#4f46e5';
 
             const type = el.getAttribute('data-cms-type');
-            const typeName = type === 'slider' ? '轮播' : '视频';
+            const typeName = type === 'slider' ? '轮播' : (type === 'video' ? '视频' : (type === 'map' ? '地图' : '表单'));
 
             toolbar.innerHTML = `<button type="button" class="cms-btn-edit" style="color: white; font-weight: bold;">⚙️ 编辑${typeName}</button>`;
 
@@ -200,7 +205,7 @@
                 }
                 const config = getMediaConfig(el, type);
                 window.parent.postMessage({
-                    action: type === 'slider' ? 'edit_slider' : 'edit_video',
+                    action: 'edit_' + type, // edit_slider, edit_video, edit_map
                     runtimeId: el.getAttribute('data-cms-runtime-id'),
                     config: config,
                     src: el.tagName.toLowerCase() === 'img' ? el.getAttribute('src') : ''
@@ -329,6 +334,22 @@
                 src: tagName === 'img' ? target.getAttribute('src') : ''
             }, '*');
         }
+        else if (type === 'map') {
+            const config = getMediaConfig(target, 'map');
+            window.parent.postMessage({
+                action: 'edit_map',
+                runtimeId: runtimeId,
+                config: config
+            }, '*');
+        }
+        else if (type === 'form') {
+            const config = getMediaConfig(target, 'form');
+            window.parent.postMessage({
+                action: 'edit_form',
+                runtimeId: runtimeId,
+                config: config
+            }, '*');
+        }
     });
 
     // 4. 监听来自父窗口 (CMS 后台) 的更新消息
@@ -452,6 +473,55 @@
                     initMediaToolbars();
                 }
             }
+        } else if (data.action === 'replace_with_map') {
+             const targetEl = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
+             if (targetEl) {
+                 const replaceTarget = targetEl.parentElement && targetEl.parentElement.classList.contains('cms-media-wrapper') ? targetEl.parentElement : targetEl;
+                 const wrapper = document.createElement('div');
+                 wrapper.setAttribute('data-cms-type', 'map');
+                 if (targetEl.hasAttribute('data-cms-runtime-id')) wrapper.setAttribute('data-cms-runtime-id', targetEl.getAttribute('data-cms-runtime-id'));
+                 wrapper.setAttribute('data-cms-config', JSON.stringify(data.mapData));
+                 
+                 wrapper.className = targetEl.className;
+                 if (targetEl.getAttribute('style')) wrapper.setAttribute('style', targetEl.getAttribute('style'));
+                 wrapper.style.position = 'relative';
+                 
+                 wrapper.innerHTML = data.mapData.iframeCode; // 直接写入地图的 iframe HTML
+                 
+                 replaceTarget.parentNode.replaceChild(wrapper, replaceTarget);
+                 initMediaToolbars();
+             }
+        } else if (data.action === 'replace_with_form') {
+             const targetEl = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement; 
+             if (targetEl) {
+                 const replaceTarget = targetEl.parentElement && targetEl.parentElement.classList.contains('cms-media-wrapper') ? targetEl.parentElement : targetEl;
+                 const wrapper = document.createElement('form');
+                 wrapper.setAttribute('data-cms-type', 'form');
+                 if (targetEl.hasAttribute('data-cms-runtime-id')) wrapper.setAttribute('data-cms-runtime-id', targetEl.getAttribute('data-cms-runtime-id'));
+                 wrapper.setAttribute('data-cms-config', JSON.stringify(data.formData));
+                 
+                 wrapper.className = targetEl.className || 'w-full space-y-4';
+                 if (targetEl.getAttribute('style')) wrapper.setAttribute('style', targetEl.getAttribute('style'));
+                 wrapper.style.position = 'relative';
+                 
+                 let formHtml = `<input type="hidden" name="_mail_method" value="${data.formData.mailMethod}">`;
+                 data.formData.fields.forEach(f => {
+                     formHtml += `<div style="margin-bottom: 1rem;">`;
+                     formHtml += `<label style="display:block; margin-bottom:0.5rem; font-weight:500; font-size:14px; color:inherit;">${f.label} ${f.required ? '<span style="color:red">*</span>' : ''}</label>`;
+                     if (f.type === 'textarea') {
+                         formHtml += `<textarea name="${f.label}" ${f.required ? 'required' : ''} rows="4" style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:4px; font-family:inherit; outline:none; color:#111;"></textarea>`;
+                     } else {
+                         formHtml += `<input type="${f.type}" name="${f.label}" ${f.required ? 'required' : ''} style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:4px; font-family:inherit; outline:none; color:#111;">`;
+                     }
+                     formHtml += `</div>`;
+                 });
+                 formHtml += `<button type="submit" style="padding: 0.75rem 1.5rem; background-color: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">提交留言 (Submit)</button>`;
+                 wrapper.innerHTML = formHtml;
+                 wrapper.setAttribute('onsubmit', `event.preventDefault(); const btn=this.querySelector('button[type="submit"]'); const oldTxt=btn.innerText; btn.disabled=true; btn.innerText='Sending...'; fetch('/sendmail.php', {method:'POST', body:new FormData(this)}).then(r=>r.json()).then(d=>{if(d.status==='success'){alert('发送成功！(Message Sent)');this.reset();}else{alert('发送失败: '+d.message);}}).catch(e=>alert('网络错误，请稍后再试')).finally(()=>{btn.disabled=false;btn.innerText=oldTxt;});`);
+                 
+                 replaceTarget.parentNode.replaceChild(wrapper, replaceTarget);
+                 initMediaToolbars();
+             }
         } else if (data.action === 'replace_with_slider') {
             const targetEl = document.querySelector(`[data-cms-runtime-id="${data.runtimeId}"]`) || window.activeElement;
             
